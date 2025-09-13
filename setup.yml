@@ -1,0 +1,13 @@
+---
+- name: "Bootstrap"
+  ansible.builtin.import_playbook: "bootstrap.yml"
+- name: "Hibernation"
+  ansible.builtin.import_playbook: "hibernation.yml"
+- name: "Setup"
+  become: true
+  hosts: all
+  gather_facts: true
+  roles:
+    - "sources"
+    - "kubernetes"
+    - "rustdesk"

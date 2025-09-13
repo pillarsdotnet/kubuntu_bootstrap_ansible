@@ -1,0 +1,41 @@
+---
+- name: "Create groups"
+  ansible.builtin.group:
+    name: "{{ item }}"
+  loop:
+    - "ansible"
+    - "lxd"
+    - "power"
+- name: "Create ansible user"
+  ansible.builtin.user:
+    name: "ansible"
+    shell: "/bin/bash"
+    groups: "adm,ansible,cdrom,dip,lxd,sudo,plugdev,power"
+- name: "Set passwordless sudo for members of the sudo group"
+  ansible.builtin.copy:
+    content: "%sudo  ALL=(ALL)  NOPASSWD: ALL\n"
+    dest: "/etc/sudoers.d/10-installer"
+    mode: "u=r,g=r,o="
+- name: "Deploy SSH Key to ansible user"
+  ansible.posix.authorized_key:
+    user: "ansible"
+    key: "{{ lookup('file', bootstrap_ssh_pubkey) }}"
+    state: "present"
+- name: "Hide ansible user from gui login"
+  when: bootstrap_target.stdout == "graphical.target"
+  block:
+    - name: "Ensure /etc/sddm.conf.d directory exists"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "/etc/sddm.conf.d"
+        state: "directory"
+    - name: "Hide the ansible user from sddm"
+      ansible.builtin.copy:
+        content: |
+          [Users]
+          HideUsers=ansible
+        dest: "/etc/sddm.conf.d/ansible.conf"
+        force: true
+        mode: "u=rw,g=r,o=r"

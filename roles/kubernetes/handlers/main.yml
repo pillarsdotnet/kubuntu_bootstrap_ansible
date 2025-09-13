@@ -1,0 +1,6 @@
+---
+- name: "Reload kubelet"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    enabled: true
+    name: "kubelet"

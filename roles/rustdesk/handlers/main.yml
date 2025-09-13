@@ -1,0 +1,9 @@
+---
+- name: "Reconfigure rustdesk"
+  changed_when: false
+  ansible.builtin.command:
+    cmd: "{{ item }}"
+  loop:
+    - "rustdesk --password {{ rustdesk_pw }}"
+    - "rustdesk --config {{ hostvars['rds']['rustdesk_config'] }}"
+    - "systemctl restart rustdesk"

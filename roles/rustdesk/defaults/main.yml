@@ -1,0 +1,11 @@
+---
+rustdesk_baseurl: "https://github.com/rustdesk"
+rustdesk_pkg:
+  client:
+    nam: "rustdesk"
+    part: "rustdesk"
+    ver: "1.4.2"
+  server:
+    nam: "rustdesk-server-hbbr"
+    part: "rustdesk-server"
+    ver: "1.1.14"

@@ -1,0 +1,33 @@
+---
+- name: "Allow Agent Forwarding"
+  ansible.builtin.copy:
+    content: "AllowAgentForwarding {{ bootstrap_ssh_agent_forwarding }}\n"
+    dest: "/etc/ssh/sshd_config.d/AllowAgentForwarding.conf"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart ssh.service"
+- name: "PasswordAuthentication"
+  ansible.builtin.copy:
+    content: "PasswordAuthentication {{ bootstrap_ssh_password }}\n"
+    dest: "/etc/ssh/sshd_config.d/PasswordAuthentication.conf"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart ssh.service"
+- name: "Change SSH Port"
+  ansible.builtin.copy:
+    content: "Port {{ bootstrap_ssh_port }}\n"
+    dest: "/etc/ssh/sshd_config.d/Port.conf"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart ssh.socket"
+- name: "X11 Forwarding"
+  ansible.builtin.copy:
+    content: "X11Forwarding {{ bootstrap_ssh_x11_forwarding }}\n"
+    dest: "/etc/ssh/sshd_config.d/X11Forwarding.conf"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart ssh.service"
+- name: "Create privilege separation directory"
+  ansible.builtin.file:
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    path: "/run/sshd"
+    state: "directory"
+  notify: "Restart ssh.service"

@@ -1,0 +1,61 @@
+---
+- name: "Exclusively reserve the hibernation_uuid partition for hibernation"
+  when: hibernation_uuid is defined and hibernation_uuid | length == 36
+  block:
+    - name: "Disable swap after resume"
+      ansible.builtin.copy:
+        content: |
+          #!/bin/sh
+          [ "$1" = "post" ] && /sbin/swapoff -U {{ hibernation_uuid }} || true
+        dest: "/usr/lib/systemd/system-sleep/disable-swap-after-resume"
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+    - name: "Enable swap before hibernate"
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Enable swap just before hibernation
+          Before=hibernate.target
+          Before=hybrid-sleep.target
+          Before=sleep.target
+          Before=suspend-then-hibernate.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=-/usr/sbin/swapon -U {{ hibernation_uuid }}
+
+          [Install]
+          WantedBy=hibernate.target
+          WantedBy=hybrid-sleep.target
+          WantedBy=sleep.target
+          WantedBy=suspend-then-hibernate.target
+        dest: "/etc/systemd/system/enable-swap-before-hibernate.service"
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+      notify: "Reload enable-swap-before-hibernate"
+    - name: "Ensure the systemd-logind override directory exists"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "/etc/systemd/system/systemd-logind.service.d"
+        state: "directory"
+    - name: "Set SYSTEMD_BYPASS_HIBERNATION_MEMORY_CHECK in systemd-logind.service"
+      ansible.builtin.copy:
+        content: |
+          [Service]
+          Environment=SYSTEMD_BYPASS_HIBERNATION_MEMORY_CHECK=1
+        dest: "/etc/systemd/system/systemd-logind.service.d/override.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Reload systemd-logind"
+    - name: "Comment-out swap entry in /etc/fstab file"
+      ansible.builtin.lineinfile:
+        backrefs: true
+        line: "# \\1"
+        path: "/etc/fstab"
+        regexp: "^([^#]*{{ hibernation_uuid }}.*)$"
+        state: "present"

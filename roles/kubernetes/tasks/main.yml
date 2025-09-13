@@ -1,0 +1,27 @@
+---
+- name: "Fix problems that can interfere with kubelet service"
+  when: ansible_facts.services["kubelet"] is defined
+  block:
+    - name: "Ensure the kubelet override directory exists"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "/etc/systemd/system/kubelet.service.d"
+        state: "directory"
+    - name: "Disable swap before starting kubelet and re-enable it afterward"
+      ansible.builtin.copy:
+        content: |
+          [Service]
+          ExecStartPre=-/sbin/swapoff -a
+          ExecStopPost=-/sbin/swapon -a
+          PermissionsStartOnly=true
+        dest: "/etc/systemd/system/kubelet.service.d/override.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Reload kubelet"
+    - name: "Ensure br_netfilter module is loaded"
+      community.general.modprobe:
+        name: "br_netfilter"
+        persistent: "present"

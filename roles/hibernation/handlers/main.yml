@@ -1,0 +1,12 @@
+---
+
+- name: "Reload enable-swap-before-hibernate"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    enabled: true
+    name: "enable-swap-before-hibernate"
+- name: "Reload systemd-logind"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    enabled: true
+    name: "systemd-logind"

@@ -1,0 +1,60 @@
+---
+- name: "Write source repos /etc/apt/sources.list.d/ folder"
+  ansible.builtin.template:
+    src: "sources.j2"
+    dest: "/etc/apt/sources.list.d/{{ item.key }}.sources"
+    owner: "root"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+  loop: "{{ repos | dict2items }}"
+  vars:
+    repos: "{{ sources_repos.common | combine(\
+      sources_repos.desktop if bootstrap_target.stdout == 'graphical.target' else {}\
+      ) }}"
+- name: "Ensure /etc/apt/sources.list.distrib directory exists"
+  ansible.builtin.file:
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    path: "/etc/apt/sources.list.distrib"
+    state: "directory"
+- name: "Create a README file in this directory to describe its purpose"
+  ansible.builtin.copy:
+    content: |
+      We prefer Deb822-style Format to the traditional One-Line-Style Format.
+      To prevent conflicts in the case of packages which auto-update their
+      corresponding `.list` file, we install a script which automatically moves
+      any `.list` files to this directory after each apt install.
+      See:
+      - https://repolib.readthedocs.io/en/latest/deb822-format.html
+      - /etc/apt/apt.conf.d/99move-list-files.conf
+    dest: "/etc/apt/sources.list.distrib/README"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+- name: "Move any *.list files out of the way to avoid conflicts"
+  ansible.builtin.copy:
+    content: >
+      DPkg::Post-Invoke {
+      "mv -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.distrib/ 2>/dev/null || true";
+      };
+    dest: "/etc/apt/apt.conf.d/99move-list-files.conf"
+    mode: "u=rwx,g=r,o=r"
+- name: "Upgrade existing packages"
+  ansible.builtin.apt:
+    auto_install_module_deps: true
+    clean: true
+    install_recommends: true
+    update_cache: true
+    upgrade: "full"
+- name: "Install new packages"
+  ansible.builtin.apt:
+    auto_install_module_deps: true
+    autoremove: true
+    clean: true
+    install_recommends: true
+    name: "{{ sources_packages.common + extra }}"
+    state: "present"
+  vars:
+    extra: "{{ sources_packages.desktop
+      if bootstrap_target == 'graphical.target' else [] }}"

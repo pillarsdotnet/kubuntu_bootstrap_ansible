@@ -1,0 +1,8 @@
+---
+- name: "Sources"
+  become: true
+  hosts: all
+  gather_facts: true
+  roles:
+    - "bootstrap"
+    - "sources"

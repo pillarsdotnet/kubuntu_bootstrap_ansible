@@ -1,0 +1,20 @@
+---
+- name: "Gather service facts"
+  ansible.builtin.service_facts:
+- name: "Determine whether a GUI is running"
+  ansible.builtin.command: "systemctl get-default"
+  register: "bootstrap_target"
+  changed_when: false
+- name: "Set up ansible user"
+  ansible.builtin.include_tasks: "ansible_user.yml"
+- name: "Set up sshd server"
+  ansible.builtin.include_tasks: "sshd.yml"
+- name: "Workaround systemd deprecation of /run/utmp"
+  ansible.builtin.include_tasks: "deprecate_run_utmp.yml"
+- name: "Ensure the custom facts directory exists"
+  ansible.builtin.file:
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    path: "/etc/ansible/facts.d"
+    state: "directory"

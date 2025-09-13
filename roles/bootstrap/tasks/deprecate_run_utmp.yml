@@ -1,0 +1,20 @@
+---
+- name: "Create symlink-run-utmp service if systemd-update-utmp is absent"
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Symlink /dev/null to /run/utmp
+      Before=multi-user.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/ln -fs /dev/null /run/utmp
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: "/etc/systemd/system/symlink-run-utmp.service"
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+  notify: "Reload symlink-run-utmp"
+  when: ansible_facts.services["systemd-umpdate-utmp"] is not defined

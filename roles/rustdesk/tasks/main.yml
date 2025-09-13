@@ -1,0 +1,60 @@
+---
+- name: "Install rustdesk server"
+  when: inventory_hostname == 'rds'
+  block:
+    - name: "Get the latest rustdesk server release"
+      ansible.builtin.set_fact:
+        rustdesk_release: "{{ 'rustdesk/rustdesk-server' | latest_github_release }}"
+    - name: "Install the rustdesk server packages"
+      ansible.builtin.apt:
+        deb: "{{ item }}"
+        install_recommends: true
+      loop: "{{ rustdesk_release | rustdesk_debs_server }}"
+    - name: "Get the rustdesk server ip"
+      ansible.builtin.setup:
+        filter:
+          - "default_ipv4"
+      register: "rustdesk_ip"
+    - name: "Get the rustdesk pubkey"
+      changed_when: false
+      ansible.builtin.command:
+        cmd: "/bin/cat /var/lib/rustdesk-server/id_ed25519.pub"
+      register: "rustdesk_key"
+    - name: "Set the rustdesk_config fact"
+      changed_when: false
+      ansible.builtin.set_fact:
+        rustdesk_config: "{{ rustdesk_ip.stdout | rustdesk_config(rustdesk_key.stdout) }}"
+      when: rustdesk_ip.stdout is defined
+- name: "Install rustdesk client"
+  when: inventory_hostname != 'rds' and hostvars.rds is defined
+  block:
+    - name: "Get the latest rustdesk client release"
+      ansible.builtin.set_fact:
+        rustdesk_release: "{{ 'rustdesk/rustdesk' | latest_github_release }}"
+    - name: "Install the rustdesk client package"
+      ansible.builtin.apt:
+        deb: "{{ item }}"
+        install_recommends: true
+      loop: "{{ rustdesk_release | rustdesk_debs_client }}"
+    - name: "Get the rustdesk id"
+      changed_when: false
+      ansible.builtin.command:
+        cmd: "/usr/bin/rustdesk --get-id"
+      register: "rustdesk_id"
+    - name: "Set rustdesk custom facts"
+      when: >
+        ansible_local.rustdesk is not defined and
+        rustdesk_id.stdout is defined and
+      ansible.builtin.copy:
+        content: |
+          [client]
+          configured: true
+          id: {{ rustdesk_id.stdout }}
+          ip: {{ hostvars['rds']['rustdesk_ip']['stdout'] }}
+          key: {{ hostvars['rds']['rustdesk_key']['stdout'] }}
+          pw: {{ rustdesk_pw }}
+        dest: "/etc/ansible/facts.d/rustdesk.fact"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Reconfigure rustdesk"

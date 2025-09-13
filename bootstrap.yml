@@ -1,0 +1,31 @@
+---
+- name: "Bootstrap"
+  become: true
+  gather_facts: true
+  hosts: all
+  pre_tasks:
+    - name: "Prompt for the port number"
+      ansible.builtin.pause:
+        prompt: "Enter the desired ssh port number:"
+      register: "bootstrap_ssh_port_prompt"
+      when: bootstrap_ssh_port is not defined
+    - name: "Set bootstrap_ssh_port"
+      ansible.builtin.set_fact:
+        bootstrap_ssh_port: |
+          {{ bootstrap_ssh_port_prompt.user_input | default('22') | int }}
+      when: >
+        bootstrap_ssh_port_prompt            is defined and
+        bootstrap_ssh_port_prompt.user_input is defined
+    - name: "Prompt for bootstrap_ssh_pubkey"
+      ansible.builtin.pause:
+        prompt: "Public ssh key to be used for ansible or root logins:"
+      register: "bootstrap_ssh_pubkey_prompt"
+      when: bootstrap_ssh_pubkey is not defined
+    - name: "Set bootstrap_ssh_pubkey"
+      ansible.builtin.set_fact:
+        bootstrap_ssh_pubkey: "{{ bootstrap_ssh_pubkey_prompt.user_input }}"
+      when: >
+        bootstrap_ssh_pubkey_prompt            is defined and
+        bootstrap_ssh_pubkey_prompt.user_input is defined
+  roles:
+    - "bootstrap"

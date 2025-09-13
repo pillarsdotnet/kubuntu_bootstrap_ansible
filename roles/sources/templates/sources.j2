@@ -1,0 +1,13 @@
+Types: {{ item.value.types | default(sources_defaults.types) }}
+Architectures: {{ item.value.arch | default(sources_defaults.arch) }}
+URIs: {{ item.value.server }}{{ item.value.uris | default(sources_defaults.uris) }}
+{% if 'fingerprint' in item.value %}
+{%   set key_url = sources_defaults.keyserver ~ item.value.fingerprint %}
+{% else %}
+{%   set key_url = item.value.server ~ item.value.signed_by %}
+{% endif %}
+Suites: {{ item.value.suites | default(sources_defaults.suites) }}
+{% set components = item.value.components | default(sources_defaults.components) %}
+{% if components is not none %}Components: {{ components }}
+{% endif %}
+{{ key_url | signed_by }}

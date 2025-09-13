@@ -1,0 +1,6 @@
+---
+bootstrap_ssh_agent_forwarding: "yes"
+bootstrap_ssh_password: "no"
+bootstrap_ssh_port: 65432
+bootstrap_ssh_pubkey: "~/.ssh/id_pillarsdotnet.pub"
+bootstrap_ssh_x11_forwarding: "no"

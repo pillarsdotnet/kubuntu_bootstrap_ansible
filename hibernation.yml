@@ -1,0 +1,20 @@
+---
+- name: "Hibernation"
+  become: true
+  gather_facts: true
+  hosts: all
+  pre_tasks:
+    - name: "Prompt for the hibernation partition"
+      ansible.builtin.pause:
+        prompt: "Enter the UUID of the hibernation partition:"
+      register: "hibernation_uuid_prompt"
+      when: hibernation_uuid is not defined
+    - name: "Set hibernation_uuid"
+      ansible.builtin.set_fact:
+        hibernation_uuid: |
+          {{ hibernation_uuid_prompt.user_input }}
+      when: >
+        hibernation_uuid_prompt            is defined and
+        hibernation_uuid_prompt.user_input is defined
+  roles:
+    - "hibernation"
