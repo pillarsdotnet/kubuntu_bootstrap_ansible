@@ -19,9 +19,10 @@ sources_repos:
       server: "https://ppa.launchpadcontent.net/ansible/ansible"
       suites: "oracular"
     docker:
+      components: "stable"
       server: "https://download.docker.com/linux/ubuntu"
       signed_by: "/gpg"
-      suites: "stable"
+      suites: "resolute"
       uris: ""
     gcloud:
       server: "https://packages.cloud.google.com/apt"
