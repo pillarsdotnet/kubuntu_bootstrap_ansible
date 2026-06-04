@@ -40,6 +40,14 @@
       };
     dest: "/etc/apt/apt.conf.d/99move-list-files.conf"
     mode: "u=rwx,g=r,o=r"
+- name: "Divert 1password apt sources to avoid conflict with 1password-beta"
+  ansible.builtin.command: >-
+    dpkg-divert --local --rename
+    --divert /etc/apt/sources.list.distrib/1password.sources
+    /etc/apt/sources.list.d/1password.sources
+  register: divert_1password_result
+  changed_when: "'Adding' in divert_1password_result.stdout"
+
 - name: "Upgrade existing packages"
   ansible.builtin.apt:
     auto_install_module_deps: true
