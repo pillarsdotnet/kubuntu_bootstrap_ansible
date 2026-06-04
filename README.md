@@ -17,6 +17,76 @@ server and out of version control.
 
 ---
 
+## Inventory
+
+The `kubernetes` role uses group membership to decide what to configure on
+each host. Create an inventory file (e.g. `inventory.yml`) that reflects
+your cluster topology.
+
+### Group structure
+
+```
+kubernetes
+├── cp       ← runs control_plane.yml (kubeadm init, Calico, VIP)
+└── worker   ← runs worker.yml (kubeadm join)
+```
+
+Hosts in **both** `cp` and `worker` are initialised as a control plane and
+then have the `node-role.kubernetes.io/control-plane:NoSchedule` taint
+removed, so they can also schedule regular workloads.
+
+### Examples
+
+**Current setup — dedicated control plane and worker:**
+
+```ini
+[cp]
+bobse16
+
+[worker]
+homelab
+
+[kubernetes:children]
+cp
+worker
+```
+
+**Single node — control plane that also runs workloads:**
+
+```ini
+[cp]
+bobse16
+
+[worker]
+bobse16
+
+[kubernetes:children]
+cp
+worker
+```
+
+**HA control plane — three control planes, two dedicated workers:**
+
+```ini
+[cp]
+cp-1
+cp-2
+cp-3
+
+[worker]
+homelab
+worker-2
+
+[kubernetes:children]
+cp
+worker
+```
+
+Connection details (Ansible SSH user, port, etc.) go in
+`host_vars/<hostname>.yml`, which is excluded from git.
+
+---
+
 ## Secrets: Ansible Vault
 
 Sensitive values — currently `tailscale_api_key` — live in
