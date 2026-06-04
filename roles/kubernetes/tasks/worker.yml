@@ -1,7 +1,7 @@
 ---
 - name: "Find first control plane host"
   ansible.builtin.set_fact:
-    cp_host: "{{ groups['all'] | select('match', 'cp(-[0-9])?') | first }}"
+    cp_host: "{{ groups['cp'] | first }}"
 
 - name: "Wait for control plane API server to be reachable"
   ansible.builtin.wait_for:

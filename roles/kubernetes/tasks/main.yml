@@ -1,13 +1,29 @@
 ---
 - name: "Apply common k8s node prerequisites"
+  when: "'kubernetes' in group_names"
   ansible.builtin.include_tasks: "common.yml"
 
 - name: "Initialize control plane"
-  when: "inventory_hostname is match('cp(-[0-9])?')"
+  when: "'cp' in group_names"
   ansible.builtin.include_tasks: "control_plane.yml"
+
+- name: "Remove control-plane taint to allow worker pods"
+  when:
+    - "'cp' in group_names"
+    - "'worker' in group_names"
+  ansible.builtin.command: >-
+    kubectl taint nodes {{ inventory_hostname }}
+    node-role.kubernetes.io/control-plane:NoSchedule-
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  register: taint_result
+  changed_when: "'untainted' in taint_result.stdout"
+  failed_when:
+    - taint_result.rc != 0
+    - "'not found' not in taint_result.stderr"
 
 - name: "Join as worker node"
   when:
-    - "inventory_hostname is not match('cp(-[0-9])?')"
-    - "groups['all'] | select('match', 'cp(-[0-9])?') | list | length > 0"
+    - "'worker' in group_names"
+    - "'cp' not in group_names"
   ansible.builtin.include_tasks: "worker.yml"
