@@ -1,0 +1,10 @@
+---
+- name: "Restart cups"
+  ansible.builtin.systemd_service:
+    name: "cups"
+    state: "restarted"
+
+- name: "Restart polkit"
+  ansible.builtin.systemd_service:
+    name: "polkit"
+    state: "restarted"

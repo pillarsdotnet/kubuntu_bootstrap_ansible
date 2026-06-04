@@ -128,9 +128,9 @@ class FilterModule:
             A list two urls.
 
         """
-        baseurl = "https://github.com/rustdesk/rustdesk-server"
+        baseurl = "https://github.com/rustdesk/rustdesk-server-pro"
         download = f"releases/download/{release}"
-        prefix = f"{baseurl}/{download}/rustdesk-server-hbb"
+        prefix = f"{baseurl}/{download}/rustdesk-server-linux-amd64.tar.gz"
         suffix = f"_{release}_amd64.deb"
         return [f"{prefix}r{suffix}", f"{prefix}s{suffix}"]
 

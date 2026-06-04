@@ -1,0 +1,27 @@
+---
+- name: "Install tailscale"
+  ansible.builtin.apt:
+    name: "tailscale"
+    state: "present"
+    update_cache: false
+
+- name: "Enable and start tailscaled"
+  ansible.builtin.systemd_service:
+    enabled: true
+    name: "tailscaled"
+    state: "started"
+
+- name: "Check tailscale connection status"
+  ansible.builtin.command: "tailscale status --json"
+  register: tailscale_status_result
+  changed_when: false
+  failed_when: false
+
+- name: "Warn if tailscale is not authenticated"
+  ansible.builtin.debug:
+    msg: >-
+      Tailscale is not authenticated on {{ inventory_hostname }}.
+      Run 'sudo tailscale up' manually, then re-run this playbook.
+  when: >-
+    tailscale_status_result.rc != 0 or
+    (tailscale_status_result.stdout | from_json).BackendState | default('') != 'Running'

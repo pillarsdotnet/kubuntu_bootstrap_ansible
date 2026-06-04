@@ -17,6 +17,17 @@
     dest: "/etc/ssh/sshd_config.d/Port.conf"
     mode: "u=rw,g=r,o=r"
   notify: "Restart ssh.socket"
+- name: "Remove any tcp port 22 allow rules"
+  community.general.ufw:
+    delete: true
+    port: 22
+    proto: "tcp"
+    rule: "allow"
+- name: "Allow tcp port 65432 (SSH)"
+  community.general.ufw:
+    port: 65432
+    proto: "tcp"
+    rule: "allow"
 - name: "X11 Forwarding"
   ansible.builtin.copy:
     content: "X11Forwarding {{ bootstrap_ssh_x11_forwarding }}\n"

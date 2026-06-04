@@ -1,0 +1,44 @@
+---
+- name: "Find first control plane host"
+  ansible.builtin.set_fact:
+    cp_host: "{{ groups['all'] | select('match', 'cp(-[0-9])?') | first }}"
+
+- name: "Wait for control plane API server to be reachable"
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[cp_host]['tailscale_ip'] }}"
+    port: 6443
+    timeout: 300
+
+- name: "Create join token on control plane"
+  ansible.builtin.command: "kubeadm token create"
+  register: join_token_result
+  delegate_to: "{{ cp_host }}"
+  changed_when: true
+
+- name: "Get CA certificate hash from control plane"
+  ansible.builtin.shell:
+    cmd: >-
+      openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt
+      | openssl rsa -pubin -outform der 2>/dev/null
+      | openssl dgst -sha256 -hex
+      | sed 's/.* //'
+  register: ca_cert_hash_result
+  delegate_to: "{{ cp_host }}"
+  changed_when: false
+
+- name: "Write kubeadm join config"
+  ansible.builtin.template:
+    src: "kubeadm-join.yaml.j2"
+    dest: "/etc/kubernetes/kubeadm-join.yaml"
+    group: "root"
+    mode: "u=rw,g=,o="
+    owner: "root"
+
+- name: "Check if node is already joined"
+  ansible.builtin.stat:
+    path: "/etc/kubernetes/kubelet.conf"
+  register: kubeadm_join_done
+
+- name: "Join the cluster"
+  ansible.builtin.command: "kubeadm join --config /etc/kubernetes/kubeadm-join.yaml"
+  when: "not kubeadm_join_done.stat.exists"

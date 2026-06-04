@@ -18,6 +18,11 @@ sources_repos:
       fingerprint: "6125e2a8c77f2818fb7bd15b93c4a3fd7bb9c367"
       server: "https://ppa.launchpadcontent.net/ansible/ansible"
       suites: "oracular"
+    docker:
+      server: "https://download.docker.com/linux/ubuntu"
+      signed_by: "/gpg"
+      suites: "stable"
+      uris: ""
     gcloud:
       server: "https://packages.cloud.google.com/apt"
       signed_by: "/doc/apt-key.gpg"
@@ -34,7 +39,7 @@ sources_repos:
       uris: ""
     k8s:
       components: null
-      server: "https://pkgs.k8s.io/core:/stable:/v1.33/deb"
+      server: "https://pkgs.k8s.io/core:/stable:/v1.36/deb"
       signed_by: "/Release.key"
       suites: "/"
       uris: ""
@@ -63,6 +68,11 @@ sources_repos:
       signed_by: "/pubkey.gpg"
       suites: "noble"
       uris: ""
+    tailscale:
+      server: "https://pkgs.tailscale.com/stable/ubuntu"
+      signed_by: "/resolute.gpg"
+      suites: "resolute"
+      uris: ""
     toolchain:
       fingerprint: "c8ec952e2a0e1fbdc5090f6a2c277a0a352154e5"
       server: "https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test"
@@ -71,7 +81,7 @@ sources_repos:
       components: "main restricted universe multiverse"
       fingerprint: "f6ecb3762474eda9d21b7022871920d1991bc93c"
       server: "http://mirrors.wikimedia.org"
-      suites: "questing questing-backports questing-proposed questing-security questing-updates"
+      suites: "resolute resolute-backports resolute-proposed resolute-security resolute-updates"
   desktop:
     canon-scanner:
       fingerprint: "e85cce014112132659e6f35d3ba6e6cce411cfcf"
@@ -95,14 +105,14 @@ sources_repos:
       fingerprint: "0e49a504b40ca53c5d8c72b487b8838c5e2893d3"
       server: "http://ppa.launchpad.net/lakinduakash/lwh"
       suites: "oracular"
-    libreoffice-prereleases:
+    libreoffice-frexh:
       fingerprint: "cdde43ba4de3f09d7ce7016673aee920ad55f5a0"
-      server: "http://ppa.launchpad.net/libreoffice/libreoffice-prereleases"
+      server: "http://ppa.launchpad.net/libreoffice/ppa"
       suites: "questing"
     mkusb:
       fingerprint: "29d76ada2d15a87bf4c68b823729827454b8c8ac"
       server: "https://ppa.launchpadcontent.net/mkusb/ppa"
-      suites: "questing"
+      suites: "resolute"
     mozilla:
       server: "https://packages.mozilla.org/apt"
       signed_by: "/repo-signing-key.gpg"
@@ -111,11 +121,15 @@ sources_repos:
     obs_studio:
       fingerprint: "bc7345f522079769f5bbe987efc71127f425e228"
       server: "http://ppa.launchpad.net/obsproject/obs-studio"
-      suites: "plucky"
+      suites: "questing"
     openshot:
       fingerprint: "b118f18f5c2aa998436f1603dc9e326890348c30"
       server: "http://ppa.launchpad.net/openshot.developers/ppa"
-      suites: "plucky"
+      suites: "resolute"
+    pipewire:
+      fingerprint: "fc43b7352bcc0ec8af2eeb8b25088a0359807596"
+      server: "https://ppa.launchpadcontent.net/pipewire-debian/pipewire-upstream"
+      suites: "oracular"
     slack:
       server: "https://packagecloud.io/slacktechnologies/slack"
       signed_by: "/gpgkey"
@@ -156,6 +170,8 @@ sources_packages:
     - "avahi-utils"
     - "awscli"
     - "bash-completion"
+    - "bind9"
+    - "bind9-utils"
     - "bison"
     - "bpfcc-tools"
     - "bpftool"
@@ -175,6 +191,7 @@ sources_packages:
     - "dh-make-golang"
     - "dlocate"
     - "dns-root-data"
+    - "dnsutils"
     - "docker.io"
     - "dpkg-repack"
     - "dput"
@@ -346,6 +363,7 @@ sources_packages:
     - "network-manager-openconnect"
     - "network-manager-pptp"
     - "networkd-dispatcher"
+    - "nginx"
     - "nmap"
     - "node-graphql"
     - "notmuch"
@@ -375,6 +393,7 @@ sources_packages:
     - "python3-asn1crypto"
     - "python3-babel"
     - "python3-bs4"
+    - "python3-certbot-nginx"
     - "python3-cssselect"
     - "python3-dbusmock"
     - "python3-dev"
@@ -419,6 +438,7 @@ sources_packages:
     - "systemd-resolved"
     - "task-english"
     - "tcpdump"
+    - "tcptraceroute"
     - "tdb-tools"
     - "telnet"
     - "terraform"
@@ -430,6 +450,7 @@ sources_packages:
     - "ufw"
     - "unar"
     - "unattended-upgrades"
+    - "unzip"
     - "util-linux-extra"
     - "uuid-runtime"
     - "vim"

@@ -1,0 +1,165 @@
+---
+- name: "Create systemd-networkd netdev for k8s VIP"
+  ansible.builtin.copy:
+    content: |
+      [NetDev]
+      Name=dummy-k8svip
+      Kind=dummy
+    dest: "/etc/systemd/network/10-k8s-vip.netdev"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  notify: "Restart systemd-networkd"
+
+- name: "Configure k8s VIP address on dummy interface"
+  ansible.builtin.copy:
+    content: |
+      [Match]
+      Name=dummy-k8svip
+      [Address]
+      Address={{ kubernetes_vip }}/32
+    dest: "/etc/systemd/network/10-k8s-vip.network"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  notify: "Restart systemd-networkd"
+
+- name: "Flush handlers to bring up VIP interface before kubeadm"
+  ansible.builtin.meta: "flush_handlers"
+
+- name: "Advertise and approve VIP subnet route via Tailscale"
+  when: "tailscale_api_key | length > 0"
+  block:
+    - name: "Advertise VIP via tailscale set"
+      ansible.builtin.command: >-
+        tailscale set --advertise-routes={{ kubernetes_vip }}/32 --accept-routes
+      changed_when: false
+
+    - name: "Get Tailscale device list"
+      ansible.builtin.uri:
+        url: "https://api.tailscale.com/api/v2/tailnet/-/devices"
+        headers:
+          Authorization: "Bearer {{ tailscale_api_key }}"
+        method: "GET"
+      register: tailscale_devices_result
+      changed_when: false
+      no_log: true
+
+    - name: "Find this node's Tailscale device ID by IP"
+      ansible.builtin.set_fact:
+        tailscale_device_id: >-
+          {{ (tailscale_devices_result.json.devices
+              | selectattr('addresses', 'contains', tailscale_ip)
+              | list | first).id }}
+
+    - name: "Get current enabled routes for this device"
+      ansible.builtin.uri:
+        url: "https://api.tailscale.com/api/v2/device/{{ tailscale_device_id }}/routes"
+        headers:
+          Authorization: "Bearer {{ tailscale_api_key }}"
+        method: "GET"
+      register: tailscale_routes_result
+      changed_when: false
+      no_log: true
+
+    - name: "Approve VIP subnet route in Tailscale admin"
+      ansible.builtin.uri:
+        url: "https://api.tailscale.com/api/v2/device/{{ tailscale_device_id }}/routes"
+        headers:
+          Authorization: "Bearer {{ tailscale_api_key }}"
+        method: "POST"
+        body_format: "json"
+        body:
+          routes:
+            - "{{ kubernetes_vip }}/32"
+        status_code: [200]
+      when: >-
+        kubernetes_vip + '/32' not in
+        (tailscale_routes_result.json.enabledRoutes | default([]))
+      no_log: true
+
+- name: "Get installed kubeadm version"
+  ansible.builtin.shell:
+    cmd: "kubeadm version -o json | jq -r '.clientVersion.gitVersion'"
+  register: kubeadm_version_result
+  changed_when: false
+
+- name: "Write kubeadm init config"
+  ansible.builtin.template:
+    src: "kubeadm-init.yaml.j2"
+    dest: "/etc/kubernetes/kubeadm-init.yaml"
+    group: "root"
+    mode: "u=rw,g=,o="
+    owner: "root"
+
+- name: "Check if cluster is already initialized"
+  ansible.builtin.stat:
+    path: "/etc/kubernetes/admin.conf"
+  register: kubeadm_admin_conf
+
+- name: "Initialize the cluster"
+  ansible.builtin.command: "kubeadm init --config /etc/kubernetes/kubeadm-init.yaml"
+  when: "not kubeadm_admin_conf.stat.exists"
+
+- name: "Wait for API server to respond"
+  ansible.builtin.wait_for:
+    host: "{{ tailscale_ip }}"
+    port: 6443
+    timeout: 120
+
+- name: "Ensure ~/.kube directory exists for ansible user"
+  ansible.builtin.file:
+    group: "{{ ansible_user }}"
+    mode: "u=rwx,g=,o="
+    owner: "{{ ansible_user }}"
+    path: "/home/{{ ansible_user }}/.kube"
+    state: "directory"
+
+- name: "Copy admin kubeconfig for ansible user"
+  ansible.builtin.copy:
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    group: "{{ ansible_user }}"
+    mode: "u=rw,g=,o="
+    owner: "{{ ansible_user }}"
+    remote_src: true
+    src: "/etc/kubernetes/admin.conf"
+
+- name: "Get latest Calico release version"
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/projectcalico/calico/releases/latest"
+  register: calico_release_result
+  changed_when: false
+
+- name: "Set calico_version fact"
+  ansible.builtin.set_fact:
+    calico_version: "{{ calico_release_result.json.tag_name }}"
+
+- name: "Apply Tigera operator manifest"
+  ansible.builtin.command: >-
+    kubectl apply --server-side -f
+    https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  changed_when: true
+
+- name: "Wait for Tigera operator to be ready"
+  ansible.builtin.command: >-
+    kubectl rollout status deployment/tigera-operator
+    -n tigera-operator --timeout=120s
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  changed_when: false
+
+- name: "Write Calico installation config"
+  ansible.builtin.template:
+    src: "calico-installation.yaml.j2"
+    dest: "/etc/kubernetes/calico-installation.yaml"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+
+- name: "Apply Calico installation config"
+  ansible.builtin.command: "kubectl apply -f /etc/kubernetes/calico-installation.yaml"
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  changed_when: true

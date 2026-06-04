@@ -4,8 +4,9 @@
   block:
     - name: "Get the latest rustdesk server release"
       ansible.builtin.set_fact:
-        rustdesk_release: "{{ 'rustdesk/rustdesk-server' | latest_github_release }}"
+        rustdesk_release: "{{ 'rustdesk/rustdesk-server-pro' | latest_github_release }}"
     - name: "Install the rustdesk server packages"
+      when: false
       ansible.builtin.apt:
         deb: "{{ item }}"
         install_recommends: true
@@ -44,7 +45,7 @@
     - name: "Set rustdesk custom facts"
       when: >
         ansible_local.rustdesk is not defined and
-        rustdesk_id.stdout is defined and
+        rustdesk_id.stdout is defined
       ansible.builtin.copy:
         content: |
           [client]

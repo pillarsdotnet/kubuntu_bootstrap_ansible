@@ -1,0 +1,93 @@
+---
+- name: "Install CUPS"
+  ansible.builtin.apt:
+    name:
+      - "cups"
+      - "cups-client"
+    state: "present"
+
+- name: "Deploy cupsd.conf"
+  ansible.builtin.copy:
+    content: |
+      # Configuration file for the CUPS scheduler.  See "man cupsd.conf" for a
+      # complete description of this file.
+
+      LogLevel warn
+      PageLogFormat
+
+      MaxLogSize 0
+
+      ErrorPolicy retry-job
+
+      Listen localhost:631
+      Listen /run/cups/cups.sock
+
+      Browsing No
+      BrowseLocalProtocols dnssd
+
+      DefaultAuthType None
+
+      WebInterface Yes
+
+      IdleExitTimeout 60
+
+      <Location />
+        Order allow,deny
+        Allow all
+      </Location>
+
+      <Location /admin>
+        AuthType None
+        Order allow,deny
+        Allow all
+      </Location>
+
+      <Location /printers>
+        AuthType None
+        Order allow,deny
+        Allow all
+      </Location>
+
+      <Location /jobs>
+        AuthType None
+        Order allow,deny
+        Allow all
+      </Location>
+
+      <Policy default>
+        JobPrivateAccess all
+        JobPrivateValues default
+        SubscriptionPrivateAccess all
+        SubscriptionPrivateValues default
+
+        <Limit All>
+          Order allow,deny
+          Allow all
+        </Limit>
+      </Policy>
+    dest: "/etc/cups/cupsd.conf"
+    owner: "root"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart cups"
+
+- name: "Deploy CUPS polkit rules"
+  ansible.builtin.copy:
+    content: |
+      polkit.addRule(function(action, subject) {
+          if (action.id.indexOf("org.opensuse.cupspkhelper.mechanism.") === 0 &&
+              subject.local && subject.active) {
+              return polkit.Result.YES;
+          }
+      });
+    dest: "/etc/polkit-1/rules.d/50-cups-noauth.rules"
+    owner: "root"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart polkit"
+
+- name: "Enable and start cups"
+  ansible.builtin.systemd_service:
+    name: "cups"
+    enabled: true
+    state: "started"

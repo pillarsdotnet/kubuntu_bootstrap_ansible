@@ -1,0 +1,6 @@
+---
+kubernetes_vip: "10.254.0.1"
+kubernetes_pod_cidr: "10.244.0.0/16"
+kubernetes_service_cidr: "10.96.0.0/12"
+# Store the real value in Ansible Vault. If left empty, VIP route approval is skipped.
+tailscale_api_key: ""

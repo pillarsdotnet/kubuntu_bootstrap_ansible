@@ -9,5 +9,7 @@
   gather_facts: true
   roles:
     - "sources"
+    - "tailscale"
     - "kubernetes"
-    - "rustdesk"
+    - "printing"
+
