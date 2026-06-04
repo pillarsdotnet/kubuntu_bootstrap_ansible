@@ -39,47 +39,50 @@ removed, so they can also schedule regular workloads.
 
 **Current setup — dedicated control plane and worker:**
 
-```ini
-[cp]
-bobse16
-
-[worker]
-homelab
-
-[kubernetes:children]
-cp
-worker
+```yaml
+all:
+  children:
+    kubernetes:
+      children:
+        cp:
+          hosts:
+            bobse16:
+        worker:
+          hosts:
+            homelab:
 ```
 
 **Single node — control plane that also runs workloads:**
 
-```ini
-[cp]
-bobse16
-
-[worker]
-bobse16
-
-[kubernetes:children]
-cp
-worker
+```yaml
+all:
+  children:
+    kubernetes:
+      children:
+        cp:
+          hosts:
+            bobse16:
+        worker:
+          hosts:
+            bobse16:
 ```
 
 **HA control plane — three control planes, two dedicated workers:**
 
-```ini
-[cp]
-cp-1
-cp-2
-cp-3
-
-[worker]
-homelab
-worker-2
-
-[kubernetes:children]
-cp
-worker
+```yaml
+all:
+  children:
+    kubernetes:
+      children:
+        cp:
+          hosts:
+            cp-1:
+            cp-2:
+            cp-3:
+        worker:
+          hosts:
+            homelab:
+            worker-2:
 ```
 
 Connection details (Ansible SSH user, port, etc.) go in
