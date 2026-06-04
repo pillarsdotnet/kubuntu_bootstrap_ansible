@@ -1,5 +1,13 @@
 ---
 
+# Stale sources files created by apt-add-repository or packages that duplicate
+# our managed .sources files with conflicting key formats.
+sources_obsolete:
+  - "lakinduakash-ubuntu-lwh.sources"
+  - "pipewire-upstream.sources"
+  - "slack-jessie.sources"
+  - "wireplumber-upstream.sources"
+
 sources_defaults:
   arch: "amd64"
   components: "main"
