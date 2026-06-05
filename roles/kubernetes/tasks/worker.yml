@@ -36,6 +36,16 @@
     - "OUTPUT"
     - "PREROUTING"
 
+- name: "Add iptables MASQUERADE so VIP traffic returns via Tailscale"
+  ansible.builtin.iptables:
+    table: nat
+    chain: "POSTROUTING"
+    destination: "{{ hostvars[cp_host]['tailscale_ip'] }}"
+    protocol: tcp
+    destination_port: "6443"
+    jump: MASQUERADE
+    comment: "k8s VIP MASQUERADE"
+
 - name: "Ensure /etc/iptables directory exists"
   ansible.builtin.file:
     group: "root"
