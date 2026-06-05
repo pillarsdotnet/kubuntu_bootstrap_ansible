@@ -107,6 +107,16 @@
     port: 6443
     timeout: 120
 
+- name: "Wait for API server to be fully functional"
+  ansible.builtin.command: "kubectl get nodes"
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  register: api_functional
+  until: "api_functional.rc == 0"
+  retries: 30
+  delay: 5
+  changed_when: false
+
 - name: "Ensure ~/.kube directory exists for ansible user"
   ansible.builtin.file:
     group: "{{ ansible_user }}"
@@ -140,6 +150,10 @@
     https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
   environment:
     KUBECONFIG: "/etc/kubernetes/admin.conf"
+  register: tigera_apply_result
+  until: "tigera_apply_result.rc == 0"
+  retries: 5
+  delay: 10
   changed_when: true
 
 - name: "Wait for Tigera operator to be ready"
