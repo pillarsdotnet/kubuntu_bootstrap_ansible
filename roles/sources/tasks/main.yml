@@ -32,11 +32,12 @@
     group: "root"
     mode: "u=rw,g=r,o=r"
     owner: "root"
-- name: "Move any *.list files out of the way to avoid conflicts"
+- name: "Move conflicting sources files out of the way after each dpkg run"
   ansible.builtin.copy:
-    content: >
+    content: |
       DPkg::Post-Invoke {
-      "mv -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.distrib/ 2>/dev/null || true";
+        "mv -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.distrib/ 2>/dev/null || true";
+        "mv -f /etc/apt/sources.list.d/1password.sources /etc/apt/sources.list.distrib/ 2>/dev/null || true";
       };
     dest: "/etc/apt/apt.conf.d/99move-list-files.conf"
     mode: "u=rwx,g=r,o=r"

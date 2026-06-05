@@ -4,7 +4,10 @@
 # our managed .sources files with conflicting key formats.
 sources_obsolete:
   - "lakinduakash-ubuntu-lwh.sources"
+  - "libreoffice-prereleases.sources"
+  - "mwt-desktop.sources"
   - "pipewire-upstream.sources"
+  - "puppet-tools.sources"
   - "slack-jessie.sources"
   - "wireplumber-upstream.sources"
 
@@ -383,7 +386,6 @@ sources_packages:
     - "optipng"
     - "os-prober"
     - "packagekit-command-not-found"
-    - "packagekit-tools"
     - "pastebinit"
     - "pigz"
     - "pipenv"
