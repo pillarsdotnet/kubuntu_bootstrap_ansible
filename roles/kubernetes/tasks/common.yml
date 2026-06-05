@@ -1,4 +1,12 @@
 ---
+- name: "Ensure /etc/kubernetes directory exists"
+  ansible.builtin.file:
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    path: "/etc/kubernetes"
+    state: "directory"
+
 - name: "Ensure /etc/containerd directory exists"
   ansible.builtin.file:
     group: "root"

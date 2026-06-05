@@ -78,14 +78,6 @@
         (tailscale_routes_result.json.enabledRoutes | default([]))
       no_log: true
 
-- name: "Ensure /etc/kubernetes directory exists"
-  ansible.builtin.file:
-    group: "root"
-    mode: "u=rwx,g=rx,o=rx"
-    owner: "root"
-    path: "/etc/kubernetes"
-    state: "directory"
-
 - name: "Get installed kubeadm version"
   ansible.builtin.shell:
     cmd: "kubeadm version -o json | jq -r '.clientVersion.gitVersion'"
@@ -165,6 +157,14 @@
     group: "root"
     mode: "u=rw,g=r,o=r"
     owner: "root"
+
+- name: "Wait for Calico Installation CRD to be established"
+  ansible.builtin.command: >-
+    kubectl wait --for=condition=Established
+    crd/installations.operator.tigera.io --timeout=120s
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  changed_when: false
 
 - name: "Apply Calico installation config"
   ansible.builtin.command: "kubectl apply -f /etc/kubernetes/calico-installation.yaml"
