@@ -3,6 +3,21 @@
   ansible.builtin.set_fact:
     cp_host: "{{ groups['cp'] | first }}"
 
+- name: "Check if node is already joined"
+  ansible.builtin.stat:
+    path: "/etc/kubernetes/kubelet.conf"
+  register: kubeadm_join_check
+
+- name: "Reset iptables before joining to remove old CNI and kube-proxy chains"
+  when: "not kubeadm_join_check.stat.exists"
+  ansible.builtin.shell: |
+    kubeadm reset -f 2>/dev/null || true
+    for table in nat mangle filter; do
+      iptables -t $table -F 2>/dev/null || true
+      iptables -t $table -X 2>/dev/null || true
+    done
+  changed_when: false
+
 - name: "Accept Tailscale subnet routes"
   ansible.builtin.command: "tailscale set --accept-routes"
   changed_when: false
