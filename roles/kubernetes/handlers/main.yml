@@ -14,3 +14,9 @@
   ansible.builtin.systemd_service:
     name: "systemd-networkd"
     state: "restarted"
+
+- name: "Enable k8s-iptables-restore"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    enabled: true
+    name: "k8s-iptables-restore"

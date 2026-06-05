@@ -3,11 +3,62 @@
   ansible.builtin.set_fact:
     cp_host: "{{ groups['cp'] | first }}"
 
-- name: "Wait for control plane API server to be reachable"
+- name: "Accept Tailscale subnet routes"
+  ansible.builtin.command: "tailscale set --accept-routes"
+  changed_when: false
+
+- name: "Add iptables DNAT rules to redirect VIP to active control plane"
+  ansible.builtin.iptables:
+    table: nat
+    chain: "{{ item }}"
+    destination: "{{ kubernetes_vip }}"
+    protocol: tcp
+    destination_port: "6443"
+    jump: DNAT
+    to_destination: "{{ hostvars[cp_host]['tailscale_ip'] }}:6443"
+    comment: "k8s VIP redirect"
+  loop:
+    - "OUTPUT"
+    - "PREROUTING"
+
+- name: "Ensure /etc/iptables directory exists"
+  ansible.builtin.file:
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    path: "/etc/iptables"
+    state: "directory"
+
+- name: "Save iptables rules for boot restoration"
+  ansible.builtin.shell:
+    cmd: "iptables-save > /etc/iptables/rules.v4"
+  changed_when: false
+
+- name: "Create systemd unit to restore iptables rules on boot"
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Restore iptables rules for k8s VIP redirect
+      After=tailscaled.service
+      Wants=tailscaled.service
+      Before=kubelet.service
+      [Service]
+      Type=oneshot
+      ExecStart=/sbin/iptables-restore --noflush /etc/iptables/rules.v4
+      RemainAfterExit=yes
+      [Install]
+      WantedBy=multi-user.target
+    dest: "/etc/systemd/system/k8s-iptables-restore.service"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  notify: "Enable k8s-iptables-restore"
+
+- name: "Wait for control plane VIP to be reachable"
   ansible.builtin.wait_for:
-    host: "{{ hostvars[cp_host]['tailscale_ip'] }}"
+    host: "{{ kubernetes_vip }}"
     port: 6443
-    timeout: 300
+    timeout: 60
 
 - name: "Create join token on control plane"
   ansible.builtin.command: "kubeadm token create"
