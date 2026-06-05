@@ -47,7 +47,7 @@ sources_repos:
     hashicorp:
       server: "https://apt.releases.hashicorp.com"
       signed_by: "/gpg"
-      suites: "plucky"
+      suites: "noble"
       uris: ""
     k8s:
       components: null

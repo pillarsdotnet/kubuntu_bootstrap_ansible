@@ -78,6 +78,14 @@
         (tailscale_routes_result.json.enabledRoutes | default([]))
       no_log: true
 
+- name: "Ensure /etc/kubernetes directory exists"
+  ansible.builtin.file:
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    path: "/etc/kubernetes"
+    state: "directory"
+
 - name: "Get installed kubeadm version"
   ansible.builtin.shell:
     cmd: "kubeadm version -o json | jq -r '.clientVersion.gitVersion'"
