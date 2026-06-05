@@ -19,7 +19,7 @@
 
       ErrorPolicy retry-job
 
-      Listen localhost:631
+      Port 631
       Listen /run/cups/cups.sock
 
       Browsing No
