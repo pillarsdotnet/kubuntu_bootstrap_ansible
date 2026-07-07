@@ -1,0 +1,29 @@
+---
+# Work around headsets (e.g. Shokz OpenComm2) that drop the first connection
+# because BlueZ opens the A2DP/AVDTP audio stream before the device firmware is
+# ready ("avdtp_connect_cb ... Connection refused (111)"). With no retry policy
+# BlueZ tears the whole connection down, forcing a manual second connect. The
+# [Policy] reconnect settings retry automatically, and ResumeDelay gives the
+# device a beat before the audio-profile handshake.
+- name: "Enforce BlueZ audio auto-reconnect policy"
+  community.general.ini_file:
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    no_extra_spaces: true
+    option: "{{ item.option }}"
+    owner: "root"
+    path: "/etc/bluetooth/main.conf"
+    section: "Policy"
+    value: "{{ item.value }}"
+  loop:
+    - option: "AutoEnable"
+      value: "{{ bootstrap_bluetooth_auto_enable }}"
+    - option: "ReconnectAttempts"
+      value: "{{ bootstrap_bluetooth_reconnect_attempts }}"
+    - option: "ReconnectIntervals"
+      value: "{{ bootstrap_bluetooth_reconnect_intervals }}"
+    - option: "ResumeDelay"
+      value: "{{ bootstrap_bluetooth_resume_delay }}"
+  loop_control:
+    label: "{{ item.option }}"
+  notify: "Restart bluetooth.service"

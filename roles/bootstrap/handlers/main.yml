@@ -4,6 +4,10 @@
     daemon_reload: true
     enabled: true
     name: "symlink-run-utmp.service"
+- name: "Restart bluetooth.service"
+  ansible.builtin.systemd_service:
+    name: "bluetooth.service"
+    state: "restarted"
 - name: "Restart ssh.service"
   ansible.builtin.systemd_service:
     name: "ssh.service"

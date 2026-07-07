@@ -1,4 +1,8 @@
 ---
+bootstrap_bluetooth_auto_enable: "true"
+bootstrap_bluetooth_reconnect_attempts: "5"
+bootstrap_bluetooth_reconnect_intervals: "1,2,4,8,16"
+bootstrap_bluetooth_resume_delay: "2"
 bootstrap_ssh_agent_forwarding: "yes"
 bootstrap_ssh_password: "no"
 bootstrap_ssh_port: 65432
