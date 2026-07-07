@@ -187,6 +187,27 @@ ansible-playbook setup.yml --ask-vault-pass
 
 ---
 
+## Linting
+
+Ansible itself comes from the system package, but the linter is pinned in
+`requirements.txt` so it is reproducible. Set up (or refresh) a local tooling
+venv with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv venv
+uv pip install -r requirements.txt
+```
+
+Then run the linter over the whole repo:
+
+```bash
+.venv/bin/ansible-lint
+```
+
+New code should lint clean against the `production` profile before committing.
+
+---
+
 ## Kubernetes VIP and Tailscale subnet routing
 
 After the `kubernetes` role runs, each control plane node will have:

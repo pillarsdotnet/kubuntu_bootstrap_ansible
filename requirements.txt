@@ -1,0 +1,9 @@
+# Python tooling for developing these playbooks (linting only).
+# Ansible itself is provided by the system package (apt); this file pins the
+# dev/CI tooling so a fresh venv is reproducible. ansible-lint pulls in a
+# matching ansible-core and yamllint.
+#
+#   uv venv
+#   uv pip install -r requirements.txt
+#
+ansible-lint==26.6.0
