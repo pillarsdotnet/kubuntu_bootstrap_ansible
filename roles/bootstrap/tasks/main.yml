@@ -14,6 +14,9 @@
 - name: "Enforce BlueZ audio auto-reconnect policy"
   ansible.builtin.include_tasks: "bluetooth.yml"
   when: ansible_facts.services["bluetooth.service"] is defined
+- name: "Disable Wi-Fi power-save"
+  ansible.builtin.include_tasks: "wifi_powersave.yml"
+  when: ansible_facts.services["NetworkManager.service"] is defined
 - name: "Ensure the custom facts directory exists"
   ansible.builtin.file:
     group: "root"

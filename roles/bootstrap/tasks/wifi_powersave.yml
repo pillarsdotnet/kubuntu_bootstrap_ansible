@@ -1,0 +1,18 @@
+---
+# Wi-Fi power-save buffers packets while the radio sleeps between beacons. On
+# Wi-Fi nodes this added 60-200 ms latency spikes with heavy jitter - enough to
+# knock Tailscale off its direct peer path and onto a flapping DERP relay (which
+# in turn degraded kubelet<->apiserver, since node InternalIPs are Tailscale
+# IPs). Disabling it via a NetworkManager default keeps every Wi-Fi link
+# low-latency (measured ~70 ms avg / 71 ms jitter -> ~9 ms / 7 ms).
+- name: "Disable Wi-Fi power-save"
+  community.general.ini_file:
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    no_extra_spaces: true
+    option: "wifi.powersave"
+    owner: "root"
+    path: "/etc/NetworkManager/conf.d/wifi-powersave-off.conf"
+    section: "connection"
+    value: "{{ bootstrap_wifi_powersave }}"
+  notify: "Reload NetworkManager"
