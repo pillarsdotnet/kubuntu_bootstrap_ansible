@@ -21,79 +21,99 @@ sources_defaults:
 sources_repos:
   common:
     1password-beta:
+      comment: "Password storage for browser, phone, and apps"
       server: "https://downloads.1password.com/linux"
       signed_by: "/keys/1password.asc"
       suites: "beta"
       uris: "/debian/amd64"
     ansible:
+      comment: "Configuration management over ssh"
       fingerprint: "6125e2a8c77f2818fb7bd15b93c4a3fd7bb9c367"
       server: "https://ppa.launchpadcontent.net/ansible/ansible"
       suites: "oracular"
     docker:
+      comment: "Industry-standard containerization tool"
       components: "stable"
       server: "https://download.docker.com/linux/ubuntu"
       signed_by: "/gpg"
       suites: "resolute"
       uris: ""
     gcloud:
+      comment: "Google cloud tools"
       server: "https://packages.cloud.google.com/apt"
       signed_by: "/doc/apt-key.gpg"
       suites: "cloud-sdk"
       uris: ""
     github-cli:
+      comment: "GitHub command-line tools"
       server: "https://cli.github.com/packages"
       signed_by: "/githubcli-archive-keyring.gpg"
       uris: ""
     hashicorp:
+      comment: "Terraform and related tools"
       server: "https://apt.releases.hashicorp.com"
       signed_by: "/gpg"
       suites: "noble"
       uris: ""
     k8s:
+      comment: "Kubernetes packages"
       components: null
       server: "https://pkgs.k8s.io/core:/stable:/v1.36/deb"
       signed_by: "/Release.key"
       suites: "/"
       uris: ""
-    kitware: # CMake, etc.
+    kitware:
+      comment: "CMake and associated build tools"
       server: "https://apt.kitware.com"
       signed_by: "/keys/kitware-archive-latest.asc"
       suites: "noble"
     llvm:
+      comment: "LLVM compilers such as Clang"
       server: "http://apt.llvm.org"
       signed_by: "/llvm-snapshot.gpg.key"
       suites: "llvm-toolchain-plucky"
       uris: "/plucky"
-    microsoft:
+    mdatp:
+      comment: "Microsoft Defender Advanced Threat Protection"
       server: "https://packages.microsoft.com"
       signed_by: "/keys/microsoft.asc"
       suites: "nightly"
       uris: "/repos/microsoft-ubuntu-mantic-prod"
     nodesource:
+      comment: "NodeJS tools and software"
       server: "https://deb.nodesource.com"
       signed_by: "/gpgkey/nodesource-repo.gpg.key"
       suites: "nodistro"
       uris: "/node_24.x"
     puppet:
+      comment: "Client-server configuration management"
       components: "puppet-tools"
       server: "http://apt.puppet.com"
       signed_by: "/pubkey.gpg"
       suites: "noble"
       uris: ""
     tailscale:
+      comment: "Free-to-use VPN"
       server: "https://pkgs.tailscale.com/stable/ubuntu"
       signed_by: "/resolute.gpg"
       suites: "resolute"
       uris: ""
     toolchain:
+      comment: "Tools to build Ubuntu packages from source"
       fingerprint: "c8ec952e2a0e1fbdc5090f6a2c277a0a352154e5"
       server: "https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test"
       suites: "plucky"
     ubuntu:
+      comment: "Official Ubuntu distribution"
       components: "main restricted universe multiverse"
       fingerprint: "f6ecb3762474eda9d21b7022871920d1991bc93c"
-      server: "http://mirrors.wikimedia.org"
+      server: "http://us.archive.ubuntu.com"
       suites: "resolute resolute-backports resolute-proposed resolute-security resolute-updates"
+    vscode:
+      comment: "Free code editor from Microsoft"
+      server: "https://packages.microsoft.com"
+      signed_by: "/keys/microsoft.asc"
+      uris: "/repos/code"
   desktop:
     canon-scanner:
       fingerprint: "e85cce014112132659e6f35d3ba6e6cce411cfcf"
