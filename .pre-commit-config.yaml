@@ -10,12 +10,25 @@ repos:
         # ansible-lint parses every task file - including the ones pulled in via
         # include_tasks - so it catches YAML/syntax/load errors that
         # "ansible-playbook --syntax-check" silently skips for dynamic includes.
-        # "--tags core" restricts it to the fatal load-failure/syntax-check rules
-        # so this hook gates on real syntax errors, not style (the repo carries
-        # some pre-existing lint nits that are out of scope here).
+        # "--tags formatting" gates on the formatting rules - notably
+        # jinja[invalid], which catches syntax errors in inline Jinja
+        # ({{ ... }}, when:, etc.). The fatal load-failure/syntax-check rules are
+        # unskippable and always run too, so plain syntax errors are covered
+        # regardless. The remaining pre-existing lint nits (var-naming,
+        # risky-shell-pipe, no-changed-when) carry other tags and stay out of
+        # scope. (Note: "--tags core,formatting" would wrongly suppress
+        # jinja[invalid] - an ansible-lint quirk - so pass "formatting" alone.)
         # Force a UTF-8 locale first: Ansible aborts on a non-UTF-8 locale (e.g.
         # a stray LC_ALL=C) before parsing anything. C.UTF-8 needs no locale-gen.
-        entry: "env LC_ALL=C.UTF-8 LANG=C.UTF-8 .venv/bin/ansible-lint --tags core"
+        entry: "env LC_ALL=C.UTF-8 LANG=C.UTF-8 .venv/bin/ansible-lint --tags formatting"
         language: "system"
         types: ["yaml"]
+        require_serial: true
+      - id: "jinja-syntax-check"
+        name: "jinja template syntax check"
+        # ansible-lint does not parse standalone .j2 template bodies; this script
+        # parses each one with Jinja2 to catch malformed markup.
+        entry: ".venv/bin/python scripts/check-jinja-syntax.py"
+        language: "system"
+        files: '\.j2$'
         require_serial: true
