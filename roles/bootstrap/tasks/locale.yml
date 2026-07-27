@@ -1,0 +1,28 @@
+---
+# Ansible refuses to run when the locale encoding is not UTF-8, failing with
+# "Ansible requires the locale encoding to be UTF-8; Detected None." A fresh
+# minimal Ubuntu/Kubuntu install often has no UTF-8 locale generated, leaving
+# the C/POSIX locale in effect. Generate the desired locale and make it the
+# system-wide default so every future run - and every login shell - starts with
+# a UTF-8 encoding. LC_ALL overrides every other locale variable, so we also
+# strip it from the persistent system config: /etc/default/locale is rewritten
+# with LANG only, and any LC_ALL line in /etc/environment (read by PAM into every
+# login session) is removed. This cannot touch an already-running interactive
+# shell that exported LC_ALL itself - unset it there.
+- name: "Generate the locale {{ bootstrap_locale }}"
+  community.general.locale_gen:
+    name: "{{ bootstrap_locale }}"
+    state: "present"
+- name: "Set the system-wide default locale"
+  ansible.builtin.copy:
+    content: |
+      LANG={{ bootstrap_locale }}
+    dest: "/etc/default/locale"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+- name: "Ensure LC_ALL is not pinned system-wide"
+  ansible.builtin.lineinfile:
+    path: "/etc/environment"
+    regexp: '^\s*LC_ALL='
+    state: "absent"

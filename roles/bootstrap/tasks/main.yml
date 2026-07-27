@@ -5,6 +5,8 @@
   ansible.builtin.command: "systemctl get-default"
   register: "bootstrap_target"
   changed_when: false
+- name: "Ensure a UTF-8 locale is generated and set as default"
+  ansible.builtin.include_tasks: "locale.yml"
 - name: "Set up ansible user"
   ansible.builtin.include_tasks: "ansible_user.yml"
 - name: "Set up sshd server"
