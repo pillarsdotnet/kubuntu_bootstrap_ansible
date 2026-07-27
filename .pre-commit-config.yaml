@@ -1,0 +1,21 @@
+---
+# Run "pre-commit install" once per clone to enable these hooks on git commit.
+# The hook uses the project's pinned venv tooling (see requirements.txt); create
+# it with "uv venv && uv pip install -r requirements.txt".
+repos:
+  - repo: "local"
+    hooks:
+      - id: "ansible-syntax-check"
+        name: "ansible syntax check"
+        # ansible-lint parses every task file - including the ones pulled in via
+        # include_tasks - so it catches YAML/syntax/load errors that
+        # "ansible-playbook --syntax-check" silently skips for dynamic includes.
+        # "--tags core" restricts it to the fatal load-failure/syntax-check rules
+        # so this hook gates on real syntax errors, not style (the repo carries
+        # some pre-existing lint nits that are out of scope here).
+        # Force a UTF-8 locale first: Ansible aborts on a non-UTF-8 locale (e.g.
+        # a stray LC_ALL=C) before parsing anything. C.UTF-8 needs no locale-gen.
+        entry: "env LC_ALL=C.UTF-8 LANG=C.UTF-8 .venv/bin/ansible-lint --tags core"
+        language: "system"
+        types: ["yaml"]
+        require_serial: true

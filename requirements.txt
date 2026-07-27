@@ -1,9 +1,11 @@
-# Python tooling for developing these playbooks (linting only).
+# Python tooling for developing these playbooks (linting and pre-commit hooks).
 # Ansible itself is provided by the system package (apt); this file pins the
 # dev/CI tooling so a fresh venv is reproducible. ansible-lint pulls in a
 # matching ansible-core and yamllint.
 #
 #   uv venv
 #   uv pip install -r requirements.txt
+#   pre-commit install
 #
 ansible-lint==26.6.0
+pre-commit==4.5.1
