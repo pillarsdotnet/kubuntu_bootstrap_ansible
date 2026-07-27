@@ -517,6 +517,7 @@ sources_packages:
     - "cen64"
     - "cheese"
     - "cm-super"
+    - "code"
     - "colord"
     - "cpdb-backend-cups"
     - "crrcsim"

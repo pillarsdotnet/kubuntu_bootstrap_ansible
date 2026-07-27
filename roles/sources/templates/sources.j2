@@ -1,4 +1,4 @@
-# {{ item.value.comment | default item.key }}
+# {{ item.value.comment | default(item.key) }}
 Types: {{ item.value.types | default(sources_defaults.types) }}
 Architectures: {{ item.value.arch | default(sources_defaults.arch) }}
 URIs: {{ item.value.server }}{{ item.value.uris | default(sources_defaults.uris) }}
