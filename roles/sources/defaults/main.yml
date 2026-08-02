@@ -26,6 +26,11 @@ sources_repos:
       signed_by: "/keys/1password.asc"
       suites: "beta"
       uris: "/debian/amd64"
+    acli:
+      comment: "Atlassian command-line interface for Jira and friends"
+      server: "https://acli.atlassian.com"
+      signed_by: "/gpg/public-key.asc"
+      uris: "/linux/deb"
     ansible:
       comment: "Configuration management over ssh"
       fingerprint: "6125e2a8c77f2818fb7bd15b93c4a3fd7bb9c367"
@@ -190,6 +195,7 @@ sources_repos:
 sources_packages:
   common:
     - "1password"
+    - "acli"
     - "aha"
     - "apparmor-profiles"
     - "apparmor-profiles-extra"
