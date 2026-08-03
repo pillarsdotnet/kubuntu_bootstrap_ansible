@@ -1097,6 +1097,7 @@ sources_packages:
     - "unifont-bin"
     - "usb-creator-kde"
     - "usbmuxd"
+    - "v4l-utils"
     - "va-driver-all"
     - "vainfo"
     - "vdpau-driver-all"
