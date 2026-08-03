@@ -14,7 +14,7 @@ server and out of version control.
 | `group_vars/all.yml` | No | Group-wide variables (hosts, ports, etc.) |
 | `group_vars/vault.yml` | No | Encrypted secrets (Ansible Vault) |
 | `host_vars/<hostname>.yml` | No | Per-host variables |
-
+| `inventory.yml` | No | List of hosts to configure |
 ---
 
 ## Inventory

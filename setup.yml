@@ -10,5 +10,5 @@
   roles:
     - "sources"
     - "tailscale"
-    - "kubernetes"
+    # - "kubernetes"
     - "printing"
