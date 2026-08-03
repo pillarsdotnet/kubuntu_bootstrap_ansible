@@ -11,6 +11,21 @@ sources_obsolete:
   - "slack-jessie.sources"
   - "wireplumber-upstream.sources"
 
+# DisplayLink USB graphics, for Targus/Synaptics docks that drive HDMI over USB
+# rather than DP alt-mode. Ships only as a proprietary self-extracting installer
+# from Synaptics - there is no apt repo for it, and the "install with apt?"
+# prompt the installer offers points at a Synaptics repo that carries no
+# displaylink-driver package for this release, so we always answer "n".
+# The installer's bundled EVDI DKMS module owns
+# /lib/modules/*/updates/dkms/evdi.ko. Deliberately do NOT also install the
+# distro evdi-dkms/libevdi1 packages: the installer reinstalls its own copy
+# unconditionally, leaving two DKMS owners of one module name.
+sources_displaylink:
+  cache: "/var/cache/displaylink"
+  checksum: "sha256:7269856c7527060c513215ce1b5a36fef074d8e89cab89bcab13df342acce098"
+  release: "6.3.0"
+  url: "https://www.synaptics.com/sites/default/files/exe_files/2026-06/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.3-EXE.zip"
+  version: "6.3.0-48"
 sources_defaults:
   arch: "amd64"
   components: "main"
@@ -530,6 +545,7 @@ sources_packages:
     - "cups-browsed"
     - "cups-bsd"
     - "cups-pk-helper"
+    - "dkms"
     - "dolphin-plugins"
     - "dvisvgm"
     - "elisa"
@@ -858,6 +874,7 @@ sources_packages:
     - "libatk-wrapper-java-jni"
     - "libbaloowidgets-bin"
     - "libbdplus0"
+    - "libc6-dev"
     - "libcanberra-gtk3-module"
     - "libcanberra-pulse"
     - "libclutter-1.0-common"
@@ -865,6 +882,7 @@ sources_packages:
     - "libcupsfilters-dev"
     - "libdecor-0-plugin-1-gtk"
     - "libdisplay-info-bin"
+    - "libdrm-dev"
     - "libgail-common"
     - "libgl1-mesa-dev"
     - "libgphoto2-l10n"
@@ -938,6 +956,7 @@ sources_packages:
     - "mesa-utils"
     - "mesa-vulkan-drivers"
     - "micropolis"
+    - "mokutil"
     - "mpv"
     - "mupdf-tools"
     - "mupen64plus-qt"
@@ -969,6 +988,7 @@ sources_packages:
     - "pinball"
     - "pinentry-qt"
     - "pipewire-audio-client-libraries"
+    - "pkg-config"
     - "plasma-activities-bin"
     - "plasma-browser-integration"
     - "plasma-calendar-addons"
