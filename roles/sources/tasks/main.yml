@@ -1,4 +1,17 @@
 ---
+# The ubuntu repo carries "Architectures: amd64 i386" for Steam's 32-bit
+# runtime, but apt will not resolve i386 packages unless dpkg also accepts the
+# architecture. Do this before the sources are written so the first update_cache
+# below already sees a usable i386 index.
+- name: "Check which foreign dpkg architectures are enabled"
+  ansible.builtin.command:
+    cmd: "dpkg --print-foreign-architectures"
+  changed_when: false
+  register: "sources_foreign_arches"
+- name: "Enable the i386 architecture for Steam's 32-bit runtime"
+  ansible.builtin.command:
+    cmd: "dpkg --add-architecture i386"
+  when: "'i386' not in sources_foreign_arches.stdout_lines"
 - name: "Write source repos /etc/apt/sources.list.d/ folder"
   ansible.builtin.template:
     src: "sources.j2"
@@ -11,6 +24,14 @@
     repos: "{{ sources_repos.common | combine(\
       sources_repos.desktop if bootstrap_target.stdout == 'graphical.target' else {}\
       ) }}"
+- name: "Write apt pins to /etc/apt/preferences.d/ folder"
+  ansible.builtin.copy:
+    content: "{{ item.value }}"
+    dest: "/etc/apt/preferences.d/{{ item.key }}"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  loop: "{{ sources_preferences | dict2items }}"
 - name: "Ensure /etc/apt/sources.list.distrib directory exists"
   ansible.builtin.file:
     group: "root"

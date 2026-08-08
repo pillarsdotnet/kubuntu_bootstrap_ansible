@@ -33,6 +33,26 @@ sources_defaults:
   suites: "stable"
   types: "deb"
   uris: "/ubuntu"
+# Files written to /etc/apt/preferences.d/, keyed by filename.
+sources_preferences:
+  kubernetes: |
+    # Managed by kubuntu_bootstrap_ansible (roles/sources).
+    #
+    # Both pkgs.k8s.io and packages.cloud.google.com (cloud-sdk) ship kubectl,
+    # and the cloud-sdk build carries an epoch (1:579.0.0-0). An epoch outranks
+    # any upstream version, so a plain "apt upgrade" would silently replace the
+    # node's kubectl with the gcloud-bundled one. Pin by hostname rather than by
+    # the Release file's Origin field, which embeds the minor version
+    # ("obs://build.opensuse.org/isv:kubernetes:core:stable:v1.36/deb") and
+    # would have to be edited on every v1.NN bump.
+    Package: kubeadm kubectl kubelet cri-tools kubernetes-cni
+    Pin: origin "pkgs.k8s.io"
+    Pin-Priority: 1001
+
+    # Belt and braces: never take these from cloud-sdk, whatever the epoch says.
+    Package: kubeadm kubectl kubelet
+    Pin: origin "packages.cloud.google.com"
+    Pin-Priority: -1
 sources_repos:
   common:
     1password-beta:
@@ -124,6 +144,14 @@ sources_repos:
       server: "https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test"
       suites: "plucky"
     ubuntu:
+      # i386 is not for our own use - it is for Steam's 32-bit runtime, which
+      # drags in ~150 i386 library packages from this archive. Those libraries
+      # are Multi-Arch: same, so dpkg requires the amd64 and i386 copies to be
+      # the exact same version. Without an i386 index here the i386 copies have
+      # no upgrade candidate at all, and apt responds by keeping the amd64 side
+      # back rather than removing the i386 side and gutting Steam. That silently
+      # strands security updates for glibc, libxml2, freetype and friends.
+      arch: "amd64 i386"
       comment: "Official Ubuntu distribution"
       components: "main restricted universe multiverse"
       fingerprint: "f6ecb3762474eda9d21b7022871920d1991bc93c"
@@ -274,6 +302,7 @@ sources_packages:
     - "genisoimage"
     - "geoclue-2.0"
     - "git-lfs"
+    - "gitlab-cli"
     - "gnupg-agent"
     - "gnupg-utils"
     - "golang-docker-credential-helpers"
