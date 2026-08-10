@@ -5,6 +5,8 @@
       - "cups"
       - "cups-client"
     state: "present"
+  tags:
+    - "requires_systemd"
 
 - name: "Deploy cupsd.conf"
   ansible.builtin.copy:
@@ -70,6 +72,8 @@
     group: "root"
     mode: "u=rw,g=r,o=r"
   notify: "Restart cups"
+  tags:
+    - "requires_systemd"
 
 - name: "Deploy CUPS polkit rules"
   ansible.builtin.copy:
@@ -85,9 +89,13 @@
     group: "root"
     mode: "u=rw,g=r,o=r"
   notify: "Restart polkit"
+  tags:
+    - "requires_systemd"
 
 - name: "Enable and start cups"
   ansible.builtin.systemd_service:
     name: "cups"
     enabled: true
     state: "started"
+  tags:
+    - "requires_systemd"

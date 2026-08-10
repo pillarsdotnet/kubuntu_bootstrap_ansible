@@ -23,11 +23,15 @@
     port: 22
     proto: "tcp"
     rule: "allow"
+  tags:
+    - "requires_netfilter"
 - name: "Allow tcp port 65432 (SSH)"
   community.general.ufw:
     port: 65432
     proto: "tcp"
     rule: "allow"
+  tags:
+    - "requires_netfilter"
 - name: "X11 Forwarding"
   ansible.builtin.copy:
     content: "X11Forwarding {{ bootstrap_ssh_x11_forwarding }}\n"

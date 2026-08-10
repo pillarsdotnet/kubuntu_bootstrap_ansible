@@ -3,21 +3,31 @@
   ansible.builtin.systemd_service:
     name: "NetworkManager.service"
     state: "reloaded"
+  tags:
+    - "requires_systemd"
 - name: "Reload symlink-run-utmp"
   ansible.builtin.systemd_service:
     daemon_reload: true
     enabled: true
     name: "symlink-run-utmp.service"
+  tags:
+    - "requires_systemd"
 - name: "Restart bluetooth.service"
   ansible.builtin.systemd_service:
     name: "bluetooth.service"
     state: "restarted"
+  tags:
+    - "requires_systemd"
 - name: "Restart ssh.service"
   ansible.builtin.systemd_service:
     name: "ssh.service"
     state: "restarted"
+  tags:
+    - "requires_systemd"
 - name: "Restart ssh.socket"
   ansible.builtin.systemd_service:
     daemon_reload: true
     name: "ssh.socket"
     state: "restarted"
+  tags:
+    - "requires_systemd"

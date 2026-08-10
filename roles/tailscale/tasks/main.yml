@@ -4,18 +4,24 @@
     name: "tailscale"
     state: "present"
     update_cache: false
+  tags:
+    - "requires_systemd"
 
 - name: "Enable and start tailscaled"
   ansible.builtin.systemd_service:
     enabled: true
     name: "tailscaled"
     state: "started"
+  tags:
+    - "requires_systemd"
 
 - name: "Check tailscale connection status"
   ansible.builtin.command: "tailscale status --json"
   register: tailscale_status_result
   changed_when: false
   failed_when: false
+  tags:
+    - "requires_systemd"
 
 - name: "Warn if tailscale is not authenticated"
   ansible.builtin.debug:
@@ -25,3 +31,5 @@
   when: >-
     tailscale_status_result.rc != 0 or
     (tailscale_status_result.stdout | from_json).BackendState | default('') != 'Running'
+  tags:
+    - "requires_systemd"

@@ -187,6 +187,29 @@ ansible-playbook setup.yml --ask-vault-pass
 
 ---
 
+## Running on WSL1 (Windows Subsystem for Linux v1)
+
+WSL1 lacks systemd and netfilter kernel support, which blocks several playbook tasks:
+- UFW firewall rules require netfilter/iptables kernel modules
+- Service management (systemd_service) cannot start/restart services
+- systemd packages cannot complete post-installation configuration
+
+To run the playbook on WSL1, skip these operations:
+
+```bash
+ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
+```
+
+This will complete successfully with the following limitations:
+- Firewall rules will not be configured
+- Services will not be automatically started (tailscale, CUPS, NetworkManager, etc.)
+- systemd-dependent packages will be partially installed but not configured
+
+For full functionality, upgrade to WSL2 (which includes Hyper-V nested virtualization
+and systemd support). See the [WSL2 installation guide](https://learn.microsoft.com/en-us/windows/wsl/install).
+
+---
+
 ## Linting
 
 Ansible itself comes from the system package, but the linter is pinned in

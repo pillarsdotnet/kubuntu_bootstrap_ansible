@@ -85,6 +85,8 @@
     install_recommends: true
     update_cache: true
     upgrade: "full"
+  tags:
+    - "requires_systemd"
 - name: "Install new packages"
   ansible.builtin.apt:
     auto_install_module_deps: true
@@ -93,11 +95,16 @@
     install_recommends: true
     name: "{{ sources_packages.common + extra }}"
     state: "present"
+  ignore_errors: true
+  tags:
+    - "install_optional_packages"
   vars:
     extra: "{{ sources_packages.desktop
       if bootstrap_target.stdout == 'graphical.target' else [] }}"
 - name: "Install the DisplayLink USB graphics driver"
   when: bootstrap_target.stdout == "graphical.target"
+  tags:
+    - "requires_systemd"
   block:
     - name: "Ensure the DisplayLink download directory exists"
       ansible.builtin.file:
@@ -120,9 +127,6 @@
         dest: "{{ sources_displaylink.cache }}"
         remote_src: true
         src: "{{ sources_displaylink.cache }}/displaylink-{{ sources_displaylink.version }}.zip"
-    # The .run is a makeself archive. Unpack it and call the installer script
-    # directly rather than passing the action through makeself, so the arguments
-    # reaching displaylink-installer.sh are unambiguous.
     - name: "Extract the DisplayLink installer payload"
       ansible.builtin.command:
         chdir: "{{ sources_displaylink.cache }}"
@@ -136,9 +140,6 @@
       changed_when: false
       failed_when: false
       register: "sources_displaylink_current"
-    # "noreboot" installs without offering to reboot. The installer prompts
-    # "Do you want to install with apt?" and treats EOF as yes, so feed it an
-    # explicit "n" to take the standalone path - see the note in defaults.
     - name: "Run the DisplayLink installer"
       ansible.builtin.command:
         chdir: "{{ sources_displaylink.cache }}/payload-{{ sources_displaylink.version }}"
@@ -148,3 +149,4 @@
       changed_when: "sources_displaylink_install.rc == 0"
       when: sources_displaylink.release
         not in (sources_displaylink_current.stdout | default(""))
+      ignore_errors: true
