@@ -12,6 +12,18 @@
   ansible.builtin.command:
     cmd: "dpkg --add-architecture i386"
   when: "'i386' not in sources_foreign_arches.stdout_lines"
+- name: "Determine repositories to skip based on environment profile"
+  ansible.builtin.set_fact:
+    skip_repos: "{{ vdi_skip_repos if environment_profile == 'vdi' else skip_repos }}"
+
+- name: "Filter repositories based on environment profile"
+  ansible.builtin.set_fact:
+    filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', skip_repos) | list | items2dict }}"
+  vars:
+    repos: "{{ sources_repos.common | combine(\
+      sources_repos.desktop if bootstrap_target.stdout == 'graphical.target' else {}\
+      ) }}"
+
 - name: "Write source repos /etc/apt/sources.list.d/ folder"
   ansible.builtin.template:
     src: "sources.j2"
@@ -19,11 +31,32 @@
     owner: "root"
     group: "root"
     mode: "u=rw,g=r,o=r"
-  loop: "{{ repos | dict2items }}"
+  loop: "{{ filtered_repos | dict2items }}"
+
+- name: "Remove unmanaged .sources files from /etc/apt/sources.list.d/ (VDI cleanup)"
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      managed_repos="{{ filtered_repos.keys() | list | join(' ') }}"
+      for file in /etc/apt/sources.list.d/*.sources; do
+        basename_noext=$(basename "$file" .sources)
+        found=0
+        for managed in $managed_repos; do
+          if [ "$basename_noext" = "$managed" ]; then
+            found=1
+            break
+          fi
+        done
+        if [ $found -eq 0 ]; then
+          echo "Removing unmanaged repository: $basename_noext"
+          rm -f "$file"
+        fi
+      done
   vars:
-    repos: "{{ sources_repos.common | combine(\
-      sources_repos.desktop if bootstrap_target.stdout == 'graphical.target' else {}\
-      ) }}"
+    managed_repos: "{{ filtered_repos }}"
+  changed_when: false
+  tags:
+    - "vdi-cleanup"
 - name: "Write apt pins to /etc/apt/preferences.d/ folder"
   ansible.builtin.copy:
     content: "{{ item.value }}"
@@ -93,14 +126,16 @@
     autoremove: true
     clean: true
     install_recommends: true
-    name: "{{ sources_packages.common + extra }}"
+    name: "{{ filtered_packages }}"
     state: "present"
   ignore_errors: true
   tags:
     - "install_optional_packages"
   vars:
+    all_packages: "{{ sources_packages.common + extra }}"
     extra: "{{ sources_packages.desktop
       if bootstrap_target.stdout == 'graphical.target' else [] }}"
+    filtered_packages: "{{ all_packages | reject('in', skip_packages) | list }}"
 - name: "Install the DisplayLink USB graphics driver"
   when: bootstrap_target.stdout == "graphical.target"
   tags:

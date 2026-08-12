@@ -55,11 +55,11 @@ sources_preferences:
     Pin-Priority: -1
 sources_repos:
   common:
-    1password-beta:
-      comment: "Password storage for browser, phone, and apps"
+    1password:
+      comment: "Password storage for browser, phone, and apps (stable)"
       server: "https://downloads.1password.com/linux"
       signed_by: "/keys/1password.asc"
-      suites: "beta"
+      suites: "stable"
       uris: "/debian/amd64"
     acli:
       comment: "Atlassian command-line interface for Jira and friends"

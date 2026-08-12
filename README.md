@@ -187,6 +187,90 @@ ansible-playbook setup.yml --ask-vault-pass
 
 ---
 
+## Environment Profiles: VDI and High-Risk Deployments
+
+For VDI environments or systems where supply chain security is a concern, you can filter
+repositories and packages to exclude high-risk or unnecessary sources.
+
+### Profiles
+
+- **`standard`** (default): Install all repositories and packages. Suitable for stable,
+  physically-controlled workstations. Set via `ansible-playbook setup.yml`
+
+- **`vdi`**: Filter repositories and packages flagged as high-risk for VDI/shared
+  environments. This profile is customizable — see "Customizing Filtered Repos" below.
+
+### Running with environment profiles
+
+```bash
+# Install using VDI profile (filters high-risk repos and packages)
+ansible-playbook setup.yml -e "environment_profile=vdi"
+
+# Standard profile (all repos/packages installed)
+ansible-playbook setup.yml -e "environment_profile=standard"
+
+# Or explicitly set skip lists
+ansible-playbook setup.yml \
+  -e "skip_repos=[github-desktop,font-manager-staging,libreoffice-frexh]" \
+  -e "skip_packages=[steam,waydroid]"
+```
+
+### Customizing filtered repos and packages
+
+When you run with `environment_profile=vdi`, the playbook references `skip_repos` and
+`skip_packages` lists defined in `group_vars/all.yml`. Edit that file to customize
+which repositories and packages are filtered for your use case.
+
+After updating the filter lists, re-run the playbook to regenerate the sources:
+
+```bash
+# Re-run sources only with new filter lists
+ansible-playbook sources.yml -e "environment_profile=vdi"
+```
+
+This will:
+1. Remove any previously-installed repos that are now in the skip list
+2. Uninstall any packages that are now in the skip list (if `autoremove: true`)
+3. Write the filtered set of `.sources` files to `/etc/apt/sources.list.d/`
+
+### WSL-1 and VDI Environment Compatibility
+
+When using this playbook with WSL-1 (Windows Subsystem for Linux) or other virtualized environments,
+certain tasks will be automatically skipped because they require Linux kernel features that are
+unavailable in WSL-1 (such as iptables/netfilter for firewall rules).
+
+**The playbook does not silently fail — it explicitly skips incompatible tasks.** Each skipped
+task is documented in `docs/WSL1_COMPATIBILITY.md`, which explains:
+
+- Which kernel features are unavailable and why
+- The impact of skipping each task
+- Suggested workarounds (e.g., using Windows Firewall instead of UFW)
+
+To understand which tasks are being skipped and why, read `docs/WSL1_COMPATIBILITY.md` before running on WSL-1:
+
+```bash
+# Before running on WSL-1, review incompatibilities
+cat docs/WSL1_COMPATIBILITY.md
+
+# Run with VDI profile to auto-skip incompatible tasks
+ansible-playbook setup.yml -e "environment_profile=vdi"
+```
+
+### Future Enhancement: Local Security Scanning
+
+Microsoft Defender ATP (`mdatp`) is currently skipped in VDI profiles due to enterprise
+licensing requirements. Future work should evaluate lightweight local security scanning
+tools as alternatives:
+
+- Filesystem integrity checking (e.g., `aide`, `tripwire`, `samhain`)
+- Malware scanning (e.g., `clamav`, `chkrootkit`)
+- Vulnerability scanning (e.g., `lynis`, `openscap`)
+- Supply chain verification (e.g., `trivy` for container/package scanning)
+
+These can be evaluated and conditionally added to VDI profiles based on risk posture.
+
+---
+
 ## Running on WSL1 (Windows Subsystem for Linux v1)
 
 WSL1 lacks systemd and netfilter kernel support, which blocks several playbook tasks:
