@@ -84,6 +84,37 @@ Tasks:
 
 ---
 
+### Service Management / Systemd Handlers
+
+**Location:** `roles/bootstrap/handlers/main.yml`
+
+Handlers:
+- "Reload NetworkManager"
+- "Reload symlink-run-utmp"
+- "Restart bluetooth.service"
+- "Restart ssh.service"
+- "Restart ssh.socket"
+
+**Reason:** WSL-1 doesn't properly support systemd service management. Services are in "unknown state" and cannot be reliably restarted or reloaded.
+
+**Impact:** Services configured by the playbook may not restart after configuration changes. SSH will continue running if already started before playbook execution, but changes to SSH config won't take effect until next manual restart.
+
+**Workaround:** After running the playbook on WSL-1, manually restart services from Windows PowerShell:
+```powershell
+wsl -d Ubuntu -- sudo service ssh restart
+wsl -d Ubuntu -- sudo service bluetooth restart
+```
+
+Or within WSL-1 shell:
+```bash
+sudo service ssh restart
+sudo service bluetooth restart
+```
+
+**Tag:** `requires_systemd`
+
+---
+
 ### Kubernetes Networking Tasks
 
 **Location:** `roles/kubernetes/tasks/worker.yml` (multiple)

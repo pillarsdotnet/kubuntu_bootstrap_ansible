@@ -5,6 +5,7 @@
     state: "reloaded"
   tags:
     - "requires_systemd"
+  when: not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)
 - name: "Reload symlink-run-utmp"
   ansible.builtin.systemd_service:
     daemon_reload: true
@@ -12,18 +13,21 @@
     name: "symlink-run-utmp.service"
   tags:
     - "requires_systemd"
+  when: not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)
 - name: "Restart bluetooth.service"
   ansible.builtin.systemd_service:
     name: "bluetooth.service"
     state: "restarted"
   tags:
     - "requires_systemd"
+  when: not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)
 - name: "Restart ssh.service"
   ansible.builtin.systemd_service:
     name: "ssh.service"
     state: "restarted"
   tags:
     - "requires_systemd"
+  when: not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)
 - name: "Restart ssh.socket"
   ansible.builtin.systemd_service:
     daemon_reload: true
@@ -31,3 +35,4 @@
     state: "restarted"
   tags:
     - "requires_systemd"
+  when: not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)

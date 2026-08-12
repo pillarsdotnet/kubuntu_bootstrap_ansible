@@ -93,7 +93,7 @@ sources_repos:
       comment: "Terraform and related tools"
       server: "https://apt.releases.hashicorp.com"
       signed_by: "/gpg"
-      suites: "noble"
+      suites: "resolute"
       uris: ""
     k8s:
       comment: "Kubernetes packages"
