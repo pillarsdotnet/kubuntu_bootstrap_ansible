@@ -5,7 +5,7 @@
     state: "reloaded"
   tags:
     - "requires_systemd"
-  when: not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)
+  when: environment_profile != 'vdi' and not (environment_profile == 'vdi' and 'requires_systemd' in wsl1_incompatible_tags)
 - name: "Reload symlink-run-utmp"
   ansible.builtin.systemd_service:
     daemon_reload: true

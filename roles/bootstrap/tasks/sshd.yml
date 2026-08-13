@@ -1,4 +1,11 @@
 ---
+- name: "Ensure sshd drop-in directory exists"
+  ansible.builtin.file:
+    path: "/etc/ssh/sshd_config.d"
+    state: "directory"
+    owner: "root"
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
 - name: "Allow Agent Forwarding"
   ansible.builtin.copy:
     content: "AllowAgentForwarding {{ bootstrap_ssh_agent_forwarding }}\n"

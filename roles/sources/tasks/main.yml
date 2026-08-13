@@ -91,7 +91,6 @@
     content: |
       DPkg::Post-Invoke {
         "mv -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.distrib/ 2>/dev/null || true";
-        "mv -f /etc/apt/sources.list.d/1password.sources /etc/apt/sources.list.distrib/ 2>/dev/null || true";
       };
     dest: "/etc/apt/apt.conf.d/99move-list-files.conf"
     mode: "u=rwx,g=r,o=r"
@@ -102,10 +101,6 @@
     /etc/apt/sources.list.d/1password.sources
   register: divert_1password_result
   changed_when: "'Adding' in divert_1password_result.stdout"
-- name: "Remove package-installed 1password sources from sources.list.d"
-  ansible.builtin.file:
-    path: "/etc/apt/sources.list.d/1password.sources"
-    state: "absent"
 - name: "Remove obsolete sources files that conflict with managed repos"
   ansible.builtin.file:
     path: "/etc/apt/sources.list.d/{{ item }}"
@@ -132,12 +127,13 @@
   tags:
     - "install_optional_packages"
   vars:
-    all_packages: "{{ sources_packages.common + extra }}"
+    vdi_extra_packages: "{{ ['1password-cli'] if environment_profile == 'vdi' else [] }}"
+    all_packages: "{{ sources_packages.common + extra + vdi_extra_packages }}"
     extra: "{{ sources_packages.desktop
       if bootstrap_target.stdout == 'graphical.target' else [] }}"
-    filtered_packages: "{{ all_packages | reject('in', skip_packages) | list }}"
+    filtered_packages: "{{ (all_packages | reject('in', skip_packages) | list) | unique }}"
 - name: "Install the DisplayLink USB graphics driver"
-  when: bootstrap_target.stdout == "graphical.target"
+  when: bootstrap_target.stdout == "graphical.target" and environment_profile != "vdi"
   tags:
     - "requires_systemd"
   block:
