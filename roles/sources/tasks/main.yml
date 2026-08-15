@@ -12,16 +12,26 @@
   ansible.builtin.command:
     cmd: "dpkg --add-architecture i386"
   when: "'i386' not in sources_foreign_arches.stdout_lines"
-- name: "Determine repositories to skip based on environment profile"
+# The "vdi" profile adds its curated list to whatever skip_repos/skip_packages
+# already hold, so an explicit -e "skip_repos=[...]" still applies on top of a
+# profile rather than being replaced by it. (The previous form assigned
+# skip_repos from skip_repos, which cannot resolve: set_fact may not read the
+# variable it is defining.)
+- name: "Determine repositories and packages to skip based on environment profile"
   ansible.builtin.set_fact:
-    skip_repos: "{{ vdi_skip_repos if environment_profile == 'vdi' else skip_repos }}"
+    sources_skip_packages: >-
+      {{ (skip_packages +
+          (vdi_skip_packages if environment_profile == 'vdi' else [])) | unique }}
+    sources_skip_repos: >-
+      {{ (skip_repos +
+          (vdi_skip_repos if environment_profile == 'vdi' else [])) | unique }}
 
 - name: "Filter repositories based on environment profile"
   ansible.builtin.set_fact:
-    filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', skip_repos) | list | items2dict }}"
+    filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', sources_skip_repos) | list | items2dict }}"
   vars:
     repos: "{{ sources_repos.common | combine(\
-      sources_repos.desktop if bootstrap_target.stdout == 'graphical.target' else {}\
+      sources_repos.desktop if bootstrap_gui | bool else {}\
       ) }}"
 
 - name: "Write source repos /etc/apt/sources.list.d/ folder"
@@ -39,6 +49,10 @@
       set -e
       managed_repos="{{ filtered_repos.keys() | list | join(' ') }}"
       for file in /etc/apt/sources.list.d/*.sources; do
+        # An unmatched glob expands to the pattern itself; without this the
+        # literal "*" would be reported as a removal on a host with no
+        # .sources files at all.
+        [ -e "$file" ] || continue
         basename_noext=$(basename "$file" .sources)
         found=0
         for managed in $managed_repos; do
@@ -52,9 +66,13 @@
           rm -f "$file"
         fi
       done
-  vars:
-    managed_repos: "{{ filtered_repos }}"
-  changed_when: false
+  register: "sources_unmanaged"
+  # This task deletes repo files, so it must not report "ok" unconditionally:
+  # dropping a host from the desktop set removes every desktop .sources file
+  # here, and a recap that always says "ok" hides that entirely. The loop echoes
+  # one line per file it removes and nothing otherwise, so its own output is the
+  # changed signal.
+  changed_when: "'Removing unmanaged repository:' in sources_unmanaged.stdout"
   tags:
     - "vdi-cleanup"
 - name: "Write apt pins to /etc/apt/preferences.d/ folder"
@@ -129,11 +147,10 @@
   vars:
     vdi_extra_packages: "{{ ['1password-cli'] if environment_profile == 'vdi' else [] }}"
     all_packages: "{{ sources_packages.common + extra + vdi_extra_packages }}"
-    extra: "{{ sources_packages.desktop
-      if bootstrap_target.stdout == 'graphical.target' else [] }}"
-    filtered_packages: "{{ (all_packages | reject('in', skip_packages) | list) | unique }}"
+    extra: "{{ sources_packages.desktop if bootstrap_gui | bool else [] }}"
+    filtered_packages: "{{ (all_packages | reject('in', sources_skip_packages) | list) | unique }}"
 - name: "Install the DisplayLink USB graphics driver"
-  when: bootstrap_target.stdout == "graphical.target" and environment_profile != "vdi"
+  when: bootstrap_gui | bool and environment_profile != "vdi"
   tags:
     - "requires_systemd"
   block:

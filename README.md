@@ -197,8 +197,16 @@ repositories and packages to exclude high-risk or unnecessary sources.
 - **`standard`** (default): Install all repositories and packages. Suitable for stable,
   physically-controlled workstations. Set via `ansible-playbook setup.yml`
 
-- **`vdi`**: Filter repositories and packages flagged as high-risk for VDI/shared
-  environments. This profile is customizable — see "Customizing Filtered Repos" below.
+- **`vdi`**: Filter out repositories that ship alpha or beta builds, or code no
+  distribution has reviewed — Launchpad PPAs, snapshot/nightly/staging suites, and
+  third-party rebuilds of someone else's software. Vendor repos for the vendor's own
+  software (Docker, Google, HashiCorp, Tailscale, 1Password, Mozilla, …) are kept:
+  their provenance is accountable. This profile is customizable — see "Customizing
+  filtered repos and packages" below.
+
+The profile is a **trust** setting, not a capability one. Kernel-capability skipping
+for WSL is detected automatically and needs no profile — see
+`docs/WSL1_COMPATIBILITY.md`.
 
 ### Running with environment profiles
 
@@ -217,9 +225,26 @@ ansible-playbook setup.yml \
 
 ### Customizing filtered repos and packages
 
-When you run with `environment_profile=vdi`, the playbook references `skip_repos` and
-`skip_packages` lists defined in `group_vars/all.yml`. Edit that file to customize
-which repositories and packages are filtered for your use case.
+The lists live in `roles/sources/defaults/main.yml`, which **is** tracked in git:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `environment_profile` | `"standard"` | Which profile to apply |
+| `vdi_skip_repos` | 17 repos | Dropped under the `vdi` profile |
+| `vdi_skip_packages` | 3 packages | Dropped under the `vdi` profile |
+| `skip_repos` | `[]` | Extra repos to drop on this host, any profile |
+| `skip_packages` | `[]` | Extra packages to drop on this host, any profile |
+
+`skip_repos`/`skip_packages` are **added to** whatever the profile contributes, so
+`-e "environment_profile=vdi" -e "skip_repos=[steam]"` applies both. Set them per host
+in `host_vars/<hostname>.yml`, or edit the `vdi_*` lists to change the fleet-wide
+policy. (They deliberately do *not* live in `group_vars/all.yml`: that file is
+untracked, so anything defined only there is undefined on every other clone — which is
+what produced `'environment_profile' is undefined`.)
+
+Only packages that exist *nowhere but* a skipped repo belong in `vdi_skip_packages`.
+LibreOffice, PipeWire, TLP and OBS are in the Ubuntu archive too, so dropping their
+PPA just pins them back to the distribution build rather than removing the software.
 
 After updating the filter lists, re-run the playbook to regenerate the sources:
 
@@ -235,9 +260,11 @@ This will:
 
 ### WSL-1 and VDI Environment Compatibility
 
-When using this playbook with WSL-1 (Windows Subsystem for Linux) or other virtualized environments,
-certain tasks will be automatically skipped because they require Linux kernel features that are
-unavailable in WSL-1 (such as iptables/netfilter for firewall rules).
+When using this playbook on WSL-1 (Windows Subsystem for Linux), tasks in the
+`bootstrap` role that require unavailable kernel features (iptables/netfilter,
+systemd) are skipped automatically — WSL-1 is detected from the kernel release, so
+there is no flag to remember. `NetworkManager` reloads are skipped on WSL-1 **and**
+WSL-2, since Windows owns the network on both.
 
 **The playbook does not silently fail — it explicitly skips incompatible tasks.** Each skipped
 task is documented in `docs/WSL1_COMPATIBILITY.md`, which explains:
@@ -252,8 +279,9 @@ To understand which tasks are being skipped and why, read `docs/WSL1_COMPATIBILI
 # Before running on WSL-1, review incompatibilities
 cat docs/WSL1_COMPATIBILITY.md
 
-# Run with VDI profile to auto-skip incompatible tasks
-ansible-playbook setup.yml -e "environment_profile=vdi"
+# The bootstrap role skips what WSL-1 cannot do on its own; the tagged tasks in
+# the tailscale, printing and sources roles are not gated, so skip them by tag
+ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 ```
 
 ### Future Enhancement: Local Security Scanning

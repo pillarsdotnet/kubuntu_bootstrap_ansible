@@ -3,6 +3,9 @@ bootstrap_bluetooth_auto_enable: "true"
 bootstrap_bluetooth_reconnect_attempts: "5"
 bootstrap_bluetooth_reconnect_intervals: "1,2,4,8,16"
 bootstrap_bluetooth_resume_delay: "2"
+# Lower-cased kernel release, used only by bootstrap_wsl_version below. Defaults
+# to "" so a play with gather_facts: false reads as "not WSL" instead of failing.
+bootstrap_kernel_release: "{{ ansible_facts.kernel | default('') | lower }}"
 bootstrap_locale: "en_US.UTF-8"
 bootstrap_ssh_agent_forwarding: "yes"
 bootstrap_ssh_password: "no"
@@ -11,3 +14,24 @@ bootstrap_ssh_pubkey: "~/.ssh/id_pillarsdotnet.pub"
 bootstrap_ssh_x11_forwarding: "no"
 # NetworkManager wifi.powersave: 2 = disable, 3 = enable.
 bootstrap_wifi_powersave: "2"
+# Which WSL this host is, if any: 0 = not WSL, 1 = WSL-1, 2 = WSL-2. WSL-1
+# reports a "4.4.0-NNNNN-Microsoft" kernel and WSL-2 a
+# "-microsoft-standard-WSL2" one; no native Ubuntu kernel carries either string.
+# Compare with "| int" - this renders as a string, not a number.
+bootstrap_wsl_version: >-
+  {{ 2 if 'wsl2' in bootstrap_kernel_release
+     else 1 if 'microsoft' in bootstrap_kernel_release
+     else 0 }}
+# Capability tags skipped when a WSL-1 kernel is detected. WSL-1 runs Ubuntu
+# user-space on the Windows kernel: there is no systemd (so no dbus session bus
+# and no graphical target either) and no netfilter. WSL-2 ships a real kernel
+# with opt-in systemd, so it is deliberately NOT covered here - only the
+# Windows-managed network gates in handlers/main.yml apply to it.
+# Override with -e "wsl1_incompatible_tags=[]" to force the tagged tasks to run.
+# These names are the vocabulary; see docs/WSL1_COMPATIBILITY.md for which tasks
+# currently carry which tag.
+wsl1_incompatible_tags:
+  - "requires_dbus"
+  - "requires_gui"
+  - "requires_netfilter"
+  - "requires_systemd"

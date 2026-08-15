@@ -1,5 +1,67 @@
 ---
 
+# Which environment this host is: "standard" for a physically-controlled
+# workstation, "vdi" for a shared or hosted desktop where the supply-chain risk
+# of a third-party repo outweighs the software in it. This lives here, in role
+# defaults, rather than in group_vars/all.yml: that file is untracked (see
+# README "Repository layout"), so a fresh clone had nothing defining it and
+# every task gating on it failed with "'environment_profile' is undefined".
+environment_profile: "standard"
+
+# Extra repos and packages to leave out on this host, on top of whatever the
+# profile below contributes. Both are user-facing knobs - pass them with
+# -e "skip_repos=[...]" / -e "skip_packages=[...]" or set them per host in
+# host_vars/<hostname>.yml.
+skip_packages: []
+skip_repos: []
+
+# Repos dropped under the "vdi" profile, because they ship alpha or beta builds,
+# or code that no distribution has reviewed:
+#   - alpha/beta/snapshot suites: llvm (apt.llvm.org snapshots), mdatp
+#     ("nightly"), steam ("beta stable"), toolchain (ubuntu-toolchain-r/test),
+#     font-manager-staging (a "staging" PPA)
+#   - Launchpad PPAs, where any account can upload and nothing is reviewed by
+#     the Ubuntu archive: ansible, canon-scanner, libreoffice-frexh,
+#     linux-wifi-hotspot, mkusb, obs_studio, openshot, pipewire, tlp,
+#     wireplumber
+#   - third-party rebuilds and mirrors of someone else's software:
+#     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
+# Vendor repos for the vendor's own software (1password, acli, docker, gcloud,
+# github-cli, google-chrome, hashicorp, k8s, kitware, mozilla, nodesource,
+# puppet, slack, tailscale, vscode) stay: their provenance is accountable.
+# Note the "ubuntu" repo cannot be listed here - dropping it would leave the
+# host with no archive at all. Its "resolute-proposed" suite is a pre-release
+# pocket; to drop just that, override the suites for one host instead:
+#   sources_repos: {common: {ubuntu: {suites: "resolute resolute-security ..."}}}
+# (ansible.cfg sets hash_behaviour = merge, so a single nested key is enough.)
+vdi_skip_repos:
+  - "ansible"
+  - "canon-scanner"
+  - "font-manager-staging"
+  - "github-desktop"
+  - "libreoffice-frexh"
+  - "linux-wifi-hotspot"
+  - "llvm"
+  - "mdatp"
+  - "mkusb"
+  - "obs_studio"
+  - "openshot"
+  - "pipewire"
+  - "steam"
+  - "tlp"
+  - "toolchain"
+  - "waydroid"
+  - "wireplumber"
+
+# Packages dropped under the "vdi" profile. Only those that exist *nowhere but*
+# a repo skipped above need listing: libreoffice, pipewire, tlp, obs-studio and
+# friends are in the Ubuntu archive too, so dropping their PPA just pins them
+# back to the distribution build rather than removing the software.
+vdi_skip_packages:
+  - "scangearmp2"      # canon-scanner PPA (Canon MP2 scanner driver)
+  - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
+  - "steam-libs-amd64"
+
 # Stale sources files created by apt-add-repository or packages that duplicate
 # our managed .sources files with conflicting key formats.
 sources_obsolete:
@@ -272,7 +334,6 @@ sources_packages:
     - "dh-make-golang"
     - "dlocate"
     - "dns-root-data"
-    - "dnsutils"
     - "docker.io"
     - "dpkg-repack"
     - "dput"
@@ -565,7 +626,6 @@ sources_packages:
     - "breeze-gtk-theme"
     - "breeze-icon-theme"
     - "cen64"
-    - "cheese"
     - "cm-super"
     - "code"
     - "colord"
@@ -611,7 +671,6 @@ sources_packages:
     - "fonts-ancient-scripts"
     - "fonts-anonymous-pro"
     - "fonts-apropal"
-    - "fonts-arapey"
     - "fonts-atarismall"
     - "fonts-atarist"
     - "fonts-atkinson-hyperlegible"
@@ -682,9 +741,6 @@ sources_packages:
     - "fonts-gnutypewriter"
     - "fonts-gotico-antiqua"
     - "fonts-goudybookletter"
-    - "fonts-hack-otf"
-    - "fonts-hack-ttf"
-    - "fonts-hack-web"
     - "fonts-havana"
     - "fonts-hermit"
     - "fonts-humor-sans"
@@ -889,7 +945,6 @@ sources_packages:
     - "ksystemlog"
     - "kubuntu-notification-helper"
     - "kubuntu-wallpapers"
-    - "kubuntu-web-shortcuts"
     - "kunifiedpush"
     - "kup-backup"
     - "kwalletmanager"
@@ -1012,7 +1067,6 @@ sources_packages:
     - "partitionmanager"
     - "pcmciautils"
     - "phonon4qt5-backend-vlc"
-    - "phonon4qt5settings"
     - "piglit"
     - "pinball"
     - "pinentry-qt"
@@ -1089,7 +1143,6 @@ sources_packages:
     - "simplescreenrecorder"
     - "simulavr"
     - "simulide"
-    - "simulpic"
     - "simutrans"
     - "skanlite"
     - "skanpage"
@@ -1120,7 +1173,6 @@ sources_packages:
     - "texlive-plain-generic"
     - "thermald"
     - "torcs"
-    - "ttf-ancient-fonts-symbola"
     - "ttf-mscorefonts-installer"
     - "umps3"
     - "unifont-bin"
@@ -1129,7 +1181,6 @@ sources_packages:
     - "v4l-utils"
     - "va-driver-all"
     - "vainfo"
-    - "vdpau-driver-all"
     - "verilator"
     - "virt-manager"
     - "virt-viewer"
@@ -1161,7 +1212,6 @@ sources_packages:
     - "xfonts-intl-european"
     - "xfonts-intl-phonetic"
     - "xfonts-jmk"
-    - "xfonts-kapl"
     - "xfonts-libdockapp"
     - "xfonts-marumoji"
     - "xfonts-mona"
@@ -1182,7 +1232,6 @@ sources_packages:
     - "xserver-xorg-video-all"
     - "xserver-xorg-video-intel"
     - "xserver-xorg-video-qxl"
-    - "xwaylandvideobridge"
     - "yelp"
   desktop-extra:
     - "https://binaries.webex.com/WebexDesktop-Ubuntu-Official-Package/Webex.deb"

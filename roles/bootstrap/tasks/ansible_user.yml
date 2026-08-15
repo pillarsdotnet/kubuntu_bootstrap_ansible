@@ -22,7 +22,7 @@
     key: "{{ lookup('file', bootstrap_ssh_pubkey) }}"
     state: "present"
 - name: "Hide ansible user from gui login"
-  when: bootstrap_target.stdout == "graphical.target"
+  when: bootstrap_gui | bool
   block:
     - name: "Ensure /etc/sddm.conf.d directory exists"
       ansible.builtin.file:

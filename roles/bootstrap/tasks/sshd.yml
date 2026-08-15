@@ -32,7 +32,9 @@
     rule: "allow"
   tags:
     - "requires_netfilter"
-  when: not (environment_profile == 'vdi' and 'requires_netfilter' in wsl1_incompatible_tags)
+  when: >-
+    not (bootstrap_wsl_version | int == 1 and
+         'requires_netfilter' in wsl1_incompatible_tags)
 - name: "Allow tcp port 65432 (SSH)"
   community.general.ufw:
     port: 65432
@@ -40,7 +42,9 @@
     rule: "allow"
   tags:
     - "requires_netfilter"
-  when: not (environment_profile == 'vdi' and 'requires_netfilter' in wsl1_incompatible_tags)
+  when: >-
+    not (bootstrap_wsl_version | int == 1 and
+         'requires_netfilter' in wsl1_incompatible_tags)
 - name: "X11 Forwarding"
   ansible.builtin.copy:
     content: "X11Forwarding {{ bootstrap_ssh_x11_forwarding }}\n"

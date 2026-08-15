@@ -1,10 +1,30 @@
 ---
 - name: "Gather service facts"
   ansible.builtin.service_facts:
-- name: "Determine whether a GUI is running"
-  ansible.builtin.command: "systemctl get-default"
-  register: "bootstrap_target"
-  changed_when: false
+# "systemctl get-default" answers the wrong question: it reports what the host is
+# configured to boot into, not what it is doing. Every host in this fleet -
+# including a headless VPS that merely has the desktop metapackages installed -
+# reports graphical.target, so that test let a server pull in desktop repos and
+# a DisplayLink driver it can never use. A running display manager is the actual
+# "there is a GUI on this host right now" signal.
+- name: "Record whether a GUI is currently running"
+  ansible.builtin.set_fact:
+    # display-manager.service is systemd's alias for whichever of sddm/gdm/
+    # lightdm the host actually uses, so this needs no per-host unit name. The
+    # facts gathered above already carry it - no extra round trip, and nothing
+    # for --skip-tags to strip. A host with no display manager installed has no
+    # such key at all, and one with no systemd (WSL-1) has no services dict, so
+    # both fall through the default to "no GUI". service_facts reports "active"
+    # for the alias and "running" for the underlying unit; accept either.
+    bootstrap_gui: >-
+      {{ ansible_facts.services['display-manager.service'].state
+         | default('stopped') in ['active', 'running'] }}
+  # set_fact rather than a role default so the value survives into the later
+  # plays of setup.yml, where roles/sources runs without roles/bootstrap in
+  # scope. Skipped when bootstrap_gui is already set, so a host that runs a GUI
+  # without a display manager - or one you simply want treated as headless - can
+  # pin it in host_vars/<hostname>.yml and win over the detection above.
+  when: bootstrap_gui is not defined
 - name: "Ensure a UTF-8 locale is generated and set as default"
   ansible.builtin.include_tasks: "locale.yml"
 - name: "Set up ansible user"
