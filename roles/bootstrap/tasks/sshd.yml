@@ -32,9 +32,10 @@
     rule: "allow"
   tags:
     - "requires_netfilter"
-  when: >-
-    not (bootstrap_wsl_version | int == 1 and
-         'requires_netfilter' in wsl1_incompatible_tags)
+  # ufw isn't present on WSL-2 by default either, and Windows owns the
+  # network on both WSL generations anyway - same reasoning as the
+  # "Reload NetworkManager" handler in handlers/main.yml.
+  when: bootstrap_wsl_version | int == 0
 - name: "Allow tcp port 65432 (SSH)"
   community.general.ufw:
     port: 65432
@@ -42,9 +43,7 @@
     rule: "allow"
   tags:
     - "requires_netfilter"
-  when: >-
-    not (bootstrap_wsl_version | int == 1 and
-         'requires_netfilter' in wsl1_incompatible_tags)
+  when: bootstrap_wsl_version | int == 0
 - name: "X11 Forwarding"
   ansible.builtin.copy:
     content: "X11Forwarding {{ bootstrap_ssh_x11_forwarding }}\n"

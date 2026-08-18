@@ -1,35 +1,38 @@
 ---
-- name: "Install tailscale"
-  ansible.builtin.apt:
-    name: "tailscale"
-    state: "present"
-    update_cache: false
+# Windows owns the network on both WSL generations (same reasoning as the
+# "Reload NetworkManager" handler and the ufw tasks in roles/bootstrap), and
+# tailscale's userspace networking mode is unreliable inside WSL besides.
+# Run tailscale on the Windows side instead. bootstrap_wsl_version is set as
+# a host fact by roles/bootstrap (see roles/bootstrap/tasks/main.yml) so it
+# is available here even though roles/bootstrap does not run in this play.
+- name: "Configure tailscale"
+  when: bootstrap_wsl_version | int == 0
   tags:
     - "requires_systemd"
+  block:
+    - name: "Install tailscale"
+      ansible.builtin.apt:
+        name: "tailscale"
+        state: "present"
+        update_cache: false
 
-- name: "Enable and start tailscaled"
-  ansible.builtin.systemd_service:
-    enabled: true
-    name: "tailscaled"
-    state: "started"
-  tags:
-    - "requires_systemd"
+    - name: "Enable and start tailscaled"
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "tailscaled"
+        state: "started"
 
-- name: "Check tailscale connection status"
-  ansible.builtin.command: "tailscale status --json"
-  register: tailscale_status_result
-  changed_when: false
-  failed_when: false
-  tags:
-    - "requires_systemd"
+    - name: "Check tailscale connection status"
+      ansible.builtin.command: "tailscale status --json"
+      register: tailscale_status_result
+      changed_when: false
+      failed_when: false
 
-- name: "Warn if tailscale is not authenticated"
-  ansible.builtin.debug:
-    msg: >-
-      Tailscale is not authenticated on {{ inventory_hostname }}.
-      Run 'sudo tailscale up' manually, then re-run this playbook.
-  when: >-
-    tailscale_status_result.rc != 0 or
-    (tailscale_status_result.stdout | from_json).BackendState | default('') != 'Running'
-  tags:
-    - "requires_systemd"
+    - name: "Warn if tailscale is not authenticated"
+      ansible.builtin.debug:
+        msg: >-
+          Tailscale is not authenticated on {{ inventory_hostname }}.
+          Run 'sudo tailscale up' manually, then re-run this playbook.
+      when: >-
+        tailscale_status_result.rc != 0 or
+        (tailscale_status_result.stdout | from_json).BackendState | default('') != 'Running'

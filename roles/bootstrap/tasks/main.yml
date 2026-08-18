@@ -1,6 +1,16 @@
 ---
 - name: "Gather service facts"
   ansible.builtin.service_facts:
+# bootstrap_wsl_version is a role default, computed from ansible_facts.kernel,
+# so it is only in scope while roles/bootstrap is running. The later "Setup"
+# play in setup.yml runs roles/sources, roles/tailscale, roles/printing
+# without roles/bootstrap in scope, so any of those that need to gate on WSL
+# would otherwise see 'bootstrap_wsl_version is undefined'. set_fact promotes
+# it to a real host fact that survives into those later plays, same as
+# bootstrap_gui below.
+- name: "Record which WSL generation, if any, this host is running"
+  ansible.builtin.set_fact:
+    bootstrap_wsl_version: "{{ bootstrap_wsl_version }}"
 # "systemctl get-default" answers the wrong question: it reports what the host is
 # configured to boot into, not what it is doing. Every host in this fleet -
 # including a headless VPS that merely has the desktop metapackages installed -

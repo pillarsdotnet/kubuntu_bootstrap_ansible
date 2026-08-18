@@ -82,17 +82,15 @@ A tagged task is skipped when a WSL-1 kernel is detected **and** its tag is in
 `wsl1_incompatible_tags`:
 
 ```yaml
-- name: "Remove any tcp port 22 allow rules"
-  community.general.ufw:
-    delete: true
-    port: 22
-    proto: "tcp"
-    rule: "allow"
+- name: "Restart ssh.service"
+  ansible.builtin.systemd_service:
+    name: "ssh.service"
+    state: "restarted"
   tags:
-    - "requires_netfilter"
+    - "requires_systemd"
   when: >-
     not (bootstrap_wsl_version | int == 1 and
-         'requires_netfilter' in wsl1_incompatible_tags)
+         'requires_systemd' in wsl1_incompatible_tags)
 ```
 
 This means:
@@ -100,16 +98,26 @@ This means:
 - On WSL-1: task is skipped automatically, no flags required
 - On WSL-2: task runs (real kernel; enable systemd in `/etc/wsl.conf` if needed)
 
+A few individual tasks skip on **both** WSL generations instead, bypassing
+this tag-list mechanism entirely — see "Where the gates actually are" below
+and the "different" callouts under "Incompatible Tasks by Category".
+
 ### 4. Where the gates actually are
 
-Only `roles/bootstrap` carries these `when` gates, because role defaults are in
-scope for that role's own tasks and handlers. The tagged tasks in
-`roles/tailscale`, `roles/printing` and `roles/sources` are tagged but
-**not** gated, so on WSL-1 they still need the tag-skip flags:
+Most of these `when` gates live in `roles/bootstrap`, because role defaults
+are only in scope for that role's own tasks and handlers. The tagged tasks in
+`roles/printing` and `roles/sources` are tagged but **not** gated, so on
+WSL-1 they still need the tag-skip flags:
 
 ```bash
 ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 ```
+
+`roles/tailscale` is the exception: `bootstrap_wsl_version` is promoted from a
+role default to a real host fact by a `set_fact` in
+`roles/bootstrap/tasks/main.yml`, which lets it survive into the later
+"Setup" play where `roles/tailscale` runs without `roles/bootstrap` in scope.
+See "Tailscale" under "Incompatible Tasks by Category" below.
 
 ## Incompatible Tasks by Category
 
@@ -128,6 +136,45 @@ Tasks:
 **Workaround:** Use Windows Defender Firewall (WDF) to configure port forwarding and access control. SSH will still work, but at the Windows network boundary rather than within WSL-1.
 
 **Tag:** `requires_netfilter`
+
+**These two tasks are different from the rest of `requires_netfilter`:** they
+are gated on `bootstrap_wsl_version | int == 0`, so they are skipped on
+**both** WSL-1 and WSL-2, not just WSL-1 via `wsl1_incompatible_tags`. WSL-2
+doesn't ship the `ufw` executable by default (`sources_packages` installing it
+doesn't guarantee it lands before `sshd.yml` runs on every host), and Windows
+owns the network on either WSL generation regardless, so there is nothing
+useful for `ufw` to manage even where the binary is present. This mirrors the
+"Reload NetworkManager" handler below.
+
+---
+
+### Tailscale
+
+**Location:** `roles/tailscale/tasks/main.yml`
+
+Tasks (wrapped in a single `block`):
+- "Install tailscale"
+- "Enable and start tailscaled"
+- "Check tailscale connection status"
+- "Warn if tailscale is not authenticated"
+
+**Reason:** Windows owns the network on both WSL-1 and WSL-2, and tailscale's
+userspace-networking fallback (needed when the kernel TUN device isn't usable)
+is unreliable inside WSL. Run Tailscale on the Windows side and let WSL ride
+on that connection instead.
+
+**Impact:** The `tailscale` package is not installed and `tailscaled` is not
+started inside WSL.
+
+**Workaround:** Install and run Tailscale on the Windows host.
+
+**Tag:** `requires_systemd`
+
+**Gate:** `bootstrap_wsl_version | int == 0` — skipped on **both** WSL-1 and
+WSL-2, not just WSL-1. Unlike most `requires_systemd` tasks, this does not use
+`wsl1_incompatible_tags`, since the reason to skip applies to WSL-2 as well.
+See "Where the gates actually are" above for how `bootstrap_wsl_version`
+reaches this role.
 
 ---
 

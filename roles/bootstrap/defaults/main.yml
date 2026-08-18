@@ -25,8 +25,10 @@ bootstrap_wsl_version: >-
 # Capability tags skipped when a WSL-1 kernel is detected. WSL-1 runs Ubuntu
 # user-space on the Windows kernel: there is no systemd (so no dbus session bus
 # and no graphical target either) and no netfilter. WSL-2 ships a real kernel
-# with opt-in systemd, so it is deliberately NOT covered here - only the
-# Windows-managed network gates in handlers/main.yml apply to it.
+# with opt-in systemd, so it is deliberately NOT covered here - only a handful
+# of individual tasks/handlers gate WSL-2 directly (NetworkManager reload in
+# handlers/main.yml, ufw rules in tasks/sshd.yml), since Windows owns the
+# network on both WSL generations regardless of kernel capability.
 # Override with -e "wsl1_incompatible_tags=[]" to force the tagged tasks to run.
 # These names are the vocabulary; see docs/WSL1_COMPATIBILITY.md for which tasks
 # currently carry which tag.
