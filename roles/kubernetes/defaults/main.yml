@@ -4,3 +4,24 @@ kubernetes_pod_cidr: "10.244.0.0/16"
 kubernetes_service_cidr: "10.96.0.0/12"
 # Store the real value in Ansible Vault. If left empty, VIP route approval is skipped.
 tailscale_api_key: ""
+# eksctl is published only as a GitHub release tarball - AWS maintains no apt
+# repo for it, so it is downloaded, checksum-verified and installed by hand,
+# and "apt upgrade" will never move it. Pin to a tag (e.g. "v0.215.0") to stop
+# tracking the newest release.
+# https://docs.aws.amazon.com/eks/latest/eksctl/installation.html
+kubernetes_eksctl_version: "latest"
+kubernetes_eksctl_bin_dir: "/usr/local/bin"
+kubernetes_eksctl_cache: "/var/cache/eksctl"
+kubernetes_eksctl_repo: "https://github.com/eksctl-io/eksctl"
+# eksctl v0.215.0 dropped its ARMv6/ARMv7 builds, so only the two 64-bit
+# architectures are mapped; anything else fails loudly rather than downloading
+# a tarball that does not exist.
+kubernetes_eksctl_arch:
+  aarch64: "arm64"
+  x86_64: "amd64"
+# eksctl needs an IAM authenticator on PATH. "aws eks get-token" covers that
+# from awscli 1.16.156 onward, and Ubuntu ships AWS CLI v2 in universe, so the
+# distro package is enough - no separate aws-iam-authenticator binary.
+kubernetes_eksctl_packages:
+  - "awscli"
+  - "bash-completion"

@@ -1,0 +1,119 @@
+---
+# eksctl is the CLI for AWS EKS clusters; it is installed here so the same
+# hosts that carry kubectl/kubeadm can also drive managed clusters. AWS ships
+# it only as a GitHub release tarball, so this file reproduces the official
+# "For Unix" install: download, verify the published SHA-256, and drop the
+# binary into /usr/local/bin.
+# https://docs.aws.amazon.com/eks/latest/eksctl/installation.html
+- name: "Fail on an architecture eksctl publishes no binary for"
+  ansible.builtin.fail:
+    msg: >-
+      eksctl publishes Linux binaries for x86_64 and aarch64 only;
+      this host reports {{ ansible_architecture }}.
+  when: "ansible_architecture not in kubernetes_eksctl_arch"
+
+- name: "Install eksctl prerequisites"
+  ansible.builtin.apt:
+    name: "{{ kubernetes_eksctl_packages }}"
+    state: "present"
+
+- name: "Set the eksctl platform fact"
+  ansible.builtin.set_fact:
+    kubernetes_eksctl_platform: >-
+      {{ ansible_system }}_{{ kubernetes_eksctl_arch[ansible_architecture] }}
+
+- name: "Get the latest eksctl release tag"
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/eksctl-io/eksctl/releases/latest"
+  register: kubernetes_eksctl_release_result
+  changed_when: false
+  when: "kubernetes_eksctl_version == 'latest'"
+
+- name: "Set the eksctl version fact"
+  ansible.builtin.set_fact:
+    kubernetes_eksctl_release: >-
+      {{ (kubernetes_eksctl_release_result.json.tag_name
+          if kubernetes_eksctl_version == 'latest'
+          else kubernetes_eksctl_version) | regex_replace('^v', '') }}
+
+# "eksctl version" prints the bare version ("0.215.0"), so a substring test is
+# enough and keeps the task quiet when the wanted release is already in place.
+- name: "Check which eksctl version is already installed"
+  ansible.builtin.command:
+    cmd: "{{ kubernetes_eksctl_bin_dir }}/eksctl version"
+  changed_when: false
+  failed_when: false
+  register: kubernetes_eksctl_current
+
+- name: "Install the eksctl release binary"
+  when: "kubernetes_eksctl_release not in (kubernetes_eksctl_current.stdout | default(''))"
+  vars:
+    kubernetes_eksctl_archive: "eksctl_{{ kubernetes_eksctl_platform | trim }}.tar.gz"
+    kubernetes_eksctl_download: "{{ kubernetes_eksctl_repo }}/releases/download/v{{ kubernetes_eksctl_release }}"
+  block:
+    - name: "Ensure the eksctl download directory exists"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "{{ kubernetes_eksctl_cache }}"
+        state: "directory"
+
+    - name: "Fetch the eksctl release checksums"
+      ansible.builtin.uri:
+        return_content: true
+        url: "{{ kubernetes_eksctl_download }}/eksctl_checksums.txt"
+      register: kubernetes_eksctl_checksums_result
+      changed_when: false
+
+    - name: "Set the eksctl tarball checksum fact"
+      ansible.builtin.set_fact:
+        kubernetes_eksctl_checksum: >-
+          {{ (kubernetes_eksctl_checksums_result.content.splitlines()
+              | select('search', '\s' + kubernetes_eksctl_archive + '$')
+              | first).split() | first }}
+
+    - name: "Download the eksctl release tarball"
+      ansible.builtin.get_url:
+        checksum: "sha256:{{ kubernetes_eksctl_checksum }}"
+        dest: "{{ kubernetes_eksctl_cache }}/{{ kubernetes_eksctl_archive }}"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        url: "{{ kubernetes_eksctl_download }}/{{ kubernetes_eksctl_archive }}"
+
+    - name: "Unpack the eksctl release tarball"
+      ansible.builtin.unarchive:
+        dest: "{{ kubernetes_eksctl_cache }}"
+        include:
+          - "eksctl"
+        remote_src: true
+        src: "{{ kubernetes_eksctl_cache }}/{{ kubernetes_eksctl_archive }}"
+
+    - name: "Install the eksctl binary"
+      ansible.builtin.copy:
+        dest: "{{ kubernetes_eksctl_bin_dir }}/eksctl"
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        remote_src: true
+        src: "{{ kubernetes_eksctl_cache }}/eksctl"
+
+# The docs suggest sourcing the completion from ~/.bashrc; a file in
+# /etc/bash_completion.d covers every login shell on the host instead, and is
+# regenerated whenever the binary moves.
+- name: "Generate the eksctl bash completion script"
+  ansible.builtin.command:
+    cmd: "{{ kubernetes_eksctl_bin_dir }}/eksctl completion bash"
+  changed_when: false
+  failed_when: false
+  register: kubernetes_eksctl_completion_result
+
+- name: "Install the eksctl bash completion script"
+  ansible.builtin.copy:
+    content: "{{ kubernetes_eksctl_completion_result.stdout }}"
+    dest: "/etc/bash_completion.d/eksctl"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  when: "kubernetes_eksctl_completion_result.rc | default(1) == 0"

@@ -360,3 +360,34 @@ down.
 > **Note:** Tailscale subnet route HA failover requires the route to be
 > approved on **each** advertising node individually in the admin console.
 > The role does this automatically when `tailscale_api_key` is set.
+
+---
+
+## eksctl
+
+Every host in the `kubernetes` group also gets [`eksctl`][eksctl-install], the
+CLI for AWS EKS clusters, installed to `/usr/local/bin/eksctl` with a
+system-wide bash completion file in `/etc/bash_completion.d/eksctl`.
+
+AWS publishes no apt repository for eksctl, so the role follows the official
+"For Unix" instructions: it resolves the newest GitHub release, fetches
+`eksctl_checksums.txt`, and verifies the tarball's SHA-256 before installing.
+Because nothing else owns the binary, **`apt upgrade` will never update it** —
+re-run the role to pick up a newer release.
+
+Its one prerequisite is an IAM authenticator on `PATH`. `aws eks get-token`
+covers that, so the role installs the distro `awscli` package (AWS CLI v2)
+rather than a separate `aws-iam-authenticator` binary. AWS **credentials** are
+not managed here: supply them per user via `~/.aws/credentials` or the usual
+`AWS_*` environment variables.
+
+Relevant variables (`roles/kubernetes/defaults/main.yml`):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `kubernetes_eksctl_version` | `latest` | Pin to a tag (e.g. `v0.230.0`) to stop tracking the newest release |
+| `kubernetes_eksctl_bin_dir` | `/usr/local/bin` | Where the binary is installed |
+| `kubernetes_eksctl_cache` | `/var/cache/eksctl` | Where the release tarball is kept |
+| `kubernetes_eksctl_packages` | `awscli`, `bash-completion` | Prerequisites installed via apt |
+
+[eksctl-install]: https://docs.aws.amazon.com/eks/latest/eksctl/installation.html
