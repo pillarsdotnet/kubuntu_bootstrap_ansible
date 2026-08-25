@@ -26,9 +26,10 @@ skip_repos: []
 #     wireplumber
 #   - third-party rebuilds and mirrors of someone else's software:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
-# Vendor repos for the vendor's own software (1password, acli, docker, gcloud,
-# github-cli, google-chrome, hashicorp, k8s, kitware, mozilla, nodesource,
-# puppet, slack, tailscale, vscode) stay: their provenance is accountable.
+# Vendor repos for the vendor's own software (1password, acli, azure-cli,
+# docker, gcloud, github-cli, google-chrome, hashicorp, k8s, kitware, mozilla,
+# nodesource, puppet, slack, tailscale, vscode) stay: their provenance is
+# accountable.
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
 # host with no archive at all. Its "resolute-proposed" suite is a pre-release
 # pocket; to drop just that, override the suites for one host instead:
@@ -124,7 +125,7 @@ sources_repos:
       suites: "stable"
       uris: "/debian/amd64"
     acli:
-      comment: "Atlassian command-line interface for Jira and friends"
+      comment: "Atlassian command-line interface for Jira, Confluence, and friends"
       server: "https://acli.atlassian.com"
       signed_by: "/gpg/public-key.asc"
       uris: "/linux/deb"
@@ -133,6 +134,12 @@ sources_repos:
       fingerprint: "6125e2a8c77f2818fb7bd15b93c4a3fd7bb9c367"
       server: "https://ppa.launchpadcontent.net/ansible/ansible"
       suites: "oracular"
+    azure-cli:
+      comment: "Microsoft Azure command-line interface"
+      server: "https://packages.microsoft.com"
+      signed_by: "/keys/microsoft.asc"
+      suites: "resolute"
+      uris: "/repos/azure-cli"
     docker:
       comment: "Industry-standard containerization tool"
       components: "stable"
@@ -313,6 +320,7 @@ sources_packages:
     - "autoconf-archive"
     - "avahi-utils"
     - "awscli"
+    - "azure-cli"
     - "bash-completion"
     - "bind9"
     - "bind9-utils"
@@ -362,6 +370,7 @@ sources_packages:
     - "gdisk"
     - "genisoimage"
     - "geoclue-2.0"
+    - "gh"
     - "git-lfs"
     - "gitlab-cli"
     - "gnupg-agent"
