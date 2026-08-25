@@ -136,9 +136,12 @@ sources_repos:
       suites: "oracular"
     azure-cli:
       comment: "Microsoft Azure command-line interface"
+      # packages.microsoft.com/repos/azure-cli only ships Ubuntu suites up to
+      # "noble" (24.04); it has no "resolute" (26.04) index yet, so pin to
+      # noble until Microsoft publishes a newer suite.
       server: "https://packages.microsoft.com"
       signed_by: "/keys/microsoft.asc"
-      suites: "resolute"
+      suites: "noble"
       uris: "/repos/azure-cli"
     docker:
       comment: "Industry-standard containerization tool"
