@@ -312,6 +312,7 @@ sources_packages:
     - "at"
     - "autoconf-archive"
     - "avahi-utils"
+    - "awscli"
     - "bash-completion"
     - "bind9"
     - "bind9-utils"
