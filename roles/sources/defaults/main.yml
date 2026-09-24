@@ -536,6 +536,7 @@ sources_packages:
     - "optipng"
     - "os-prober"
     - "packagekit-command-not-found"
+    - "pandoc"
     - "pastebinit"
     - "pigz"
     - "pipenv"
