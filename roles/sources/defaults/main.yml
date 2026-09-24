@@ -59,7 +59,6 @@ vdi_skip_repos:
 # friends are in the Ubuntu archive too, so dropping their PPA just pins them
 # back to the distribution build rather than removing the software.
 vdi_skip_packages:
-  - "scangearmp2"      # canon-scanner PPA (Canon MP2 scanner driver)
   - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
   - "steam-libs-amd64"
 
@@ -1151,7 +1150,6 @@ sources_packages:
     - "sane"
     - "sane-airscan"
     - "sane-utils"
-    - "scangearmp2"
     - "sdcc-ucsim"
     - "sddm-theme-breeze"
     - "sddm-theme-maya"
