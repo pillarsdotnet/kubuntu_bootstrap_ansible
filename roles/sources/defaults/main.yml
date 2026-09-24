@@ -179,12 +179,17 @@ sources_repos:
       server: "https://apt.kitware.com"
       signed_by: "/keys/kitware-archive-latest.asc"
       suites: "noble"
+    # The unversioned suite is the development snapshot (clang-24 and on); its
+    # unversioned metapackages (clang, clang-format, ...) still depend on the
+    # previous major, which lives only in the versioned "-23" suite. Without
+    # both, "apt install clang-format" is unsatisfiable. Bump the "-23" when
+    # the snapshot's metapackages move to the next major.
     llvm:
       comment: "LLVM compilers such as Clang"
       server: "http://apt.llvm.org"
       signed_by: "/llvm-snapshot.gpg.key"
-      suites: "llvm-toolchain-plucky"
-      uris: "/plucky"
+      suites: "llvm-toolchain-resolute llvm-toolchain-resolute-23"
+      uris: "/resolute"
     mdatp:
       comment: "Microsoft Defender Advanced Threat Protection"
       server: "https://packages.microsoft.com"
