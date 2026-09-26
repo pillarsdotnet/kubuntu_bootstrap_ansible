@@ -329,7 +329,10 @@ sources_packages:
     - "awscli"
     - "azure-cli"
     - "bash-completion"
-    - "bind9"
+    # Not "bind9": that is the server, and it starts named on port 53 on every
+    # address. On racknerd it took the port from Knot, which then failed to
+    # restart, and the zone it serves went unanswered for weeks. The client
+    # tools are in bind9-utils and bind9-dnsutils.
     - "bind9-utils"
     - "bison"
     - "bpfcc-tools"
