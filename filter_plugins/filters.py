@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 from shutil import which
 from subprocess import PIPE, run
@@ -49,6 +50,24 @@ class FilterModule:
             check=True, input=key, shell=True, stdout=PIPE,
             text=False,
         ).stdout.decode("utf-8")
+
+    @staticmethod
+    def global_addresses(addresses: list[str]) -> list[str]:
+        """Return the addresses that are routable on the public internet.
+
+        Private ranges, loopback, link-local and the carrier-grade NAT range
+        that Tailscale uses are all dropped, so a host behind NAT yields an
+        empty list.
+
+        Args:
+            addresses: IP address strings, such as a host's
+                `ansible_all_ipv4_addresses` fact.
+
+        Returns:
+            The members of `addresses` that are globally routable.
+
+        """
+        return [a for a in addresses if ipaddress.ip_address(a).is_global]
 
     @staticmethod
     def latest_github_release(project: str) -> str:
@@ -137,6 +156,7 @@ class FilterModule:
     def filters(self) -> dict[str, Callable]:
         """Return a hash of filter names and implementing functions."""
         return {
+            "global_addresses": self.global_addresses,
             "latest_github_release": self.latest_github_release,
             "rustdesk_config": self.rustdesk_config,
             "rustdesk_debs_client": self.rustdesk_debs_client,

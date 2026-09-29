@@ -311,6 +311,23 @@ sources_repos:
       fingerprint: "fc43b7352bcc0ec8af2eeb8b25088a0359807596"
       server: "https://ppa.launchpadcontent.net/pipewire-debian/wireplumber-upstream"
       suites: "oracular"
+
+# The mail transport agent, chosen per host. Every Debian MTA conflicts with
+# every other, so this must be exactly one package, and it is appended to the
+# install list rather than listed in sources_packages.
+#   - A host with a public IPv4 address can be an MX, so it gets opensmtpd,
+#     which receives mail on port 25 as well as sending it (racknerd forwards
+#     bobvincent.com this way).
+#   - A host behind NAT only ever sends - cron output to root - so it gets
+#     dma, which relays through a smarthost and never listens.
+# IPv4 only on purpose: the home hosts have globally routable IPv6 addresses
+# from the ISP, but nothing points mail at them, and counting those would hand
+# every one of them an MX.
+sources_mail_transport_agent: >-
+  {{ 'opensmtpd'
+     if (ansible_all_ipv4_addresses | default([]) | global_addresses)
+     else 'dma' }}
+
 sources_packages:
   common:
     - "1password"
@@ -352,7 +369,6 @@ sources_packages:
     - "dh-exec"
     - "dh-make-golang"
     - "dlocate"
-    - "dma"
     - "dns-root-data"
     - "docker.io"
     - "dpkg-repack"

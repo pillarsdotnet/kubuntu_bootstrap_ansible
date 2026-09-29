@@ -146,7 +146,9 @@
     - "install_optional_packages"
   vars:
     vdi_extra_packages: "{{ ['1password-cli'] if environment_profile == 'vdi' else [] }}"
-    all_packages: "{{ sources_packages.common + extra + vdi_extra_packages }}"
+    all_packages: >-
+      {{ sources_packages.common + extra + vdi_extra_packages
+         + [sources_mail_transport_agent] }}
     extra: "{{ sources_packages.desktop if bootstrap_gui | bool else [] }}"
     filtered_packages: "{{ (all_packages | reject('in', sources_skip_packages) | list) | unique }}"
 - name: "Install the DisplayLink USB graphics driver"
