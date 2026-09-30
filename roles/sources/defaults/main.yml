@@ -27,9 +27,9 @@ skip_repos: []
 #   - third-party rebuilds and mirrors of someone else's software:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
 # Vendor repos for the vendor's own software (1password, acli, azure-cli,
-# docker, gcloud, github-cli, google-chrome, hashicorp, k8s, kitware, mozilla,
-# nodesource, puppet, slack, tailscale, vscode) stay: their provenance is
-# accountable.
+# docker, gcloud, github-cli, google-chrome, hashicorp, k8s, kitware,
+# microsoft-prod, mozilla, nodesource, puppet, slack, tailscale, vscode) stay:
+# their provenance is accountable.
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
 # host with no archive at all. Its "resolute-proposed" suite is a pre-release
 # pocket; to drop just that, override the suites for one host instead:
@@ -115,6 +115,22 @@ sources_preferences:
     Package: kubeadm kubectl kubelet
     Pin: origin "packages.cloud.google.com"
     Pin-Priority: -1
+  microsoft-prod: |
+    # Managed by kubuntu_bootstrap_ansible (roles/sources).
+    #
+    # The microsoft-prod repo is here for powershell alone (see sources_repos).
+    # It is Microsoft's general Ubuntu 24.04 repo, carrying dotnet, SQL Server
+    # tools and much else built against noble, so refuse everything from it but
+    # powershell. Pin by release label, not by origin hostname: vscode,
+    # azure-cli and mdatp come from other repos on packages.microsoft.com, and
+    # a hostname pin would block those too.
+    Package: *
+    Pin: release l=microsoft-ubuntu-noble-prod noble
+    Pin-Priority: -1
+
+    Package: powershell
+    Pin: release l=microsoft-ubuntu-noble-prod noble
+    Pin-Priority: 500
 sources_repos:
   common:
     1password:
@@ -189,6 +205,18 @@ sources_repos:
       signed_by: "/llvm-snapshot.gpg.key"
       suites: "llvm-toolchain-resolute llvm-toolchain-resolute-23"
       uris: "/resolute"
+    # Microsoft publishes no powershell package for resolute (26.04): its
+    # /ubuntu/26.04/prod repo exists but leaves powershell out. The noble
+    # (24.04) build installs cleanly - libssl3t64 provides libssl3 and
+    # libgcc-s1 provides libgcc1 - so take it from there, and only it: the
+    # "microsoft-prod" entry in sources_preferences refuses everything else in
+    # this repo. Move to /ubuntu/26.04/prod once powershell appears there.
+    microsoft-prod:
+      comment: "Microsoft PowerShell (noble build, pinned to powershell only)"
+      server: "https://packages.microsoft.com"
+      signed_by: "/keys/microsoft.asc"
+      suites: "noble"
+      uris: "/ubuntu/24.04/prod"
     mdatp:
       comment: "Microsoft Defender Advanced Threat Protection"
       server: "https://packages.microsoft.com"
@@ -562,6 +590,7 @@ sources_packages:
     - "pipx"
     - "plocate"
     - "pngcrush"
+    - "powershell"
     - "pre-commit-hooks"
     - "proj-bin"
     - "pstoedit"
