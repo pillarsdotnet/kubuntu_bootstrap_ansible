@@ -68,12 +68,14 @@ untracked (see README "Repository layout"), so declaring them there left a fresh
 clone with nothing defining them, and every gated task died with
 `Error while evaluating conditional: 'environment_profile' is undefined`.
 
-`requires_dbus` and `requires_gui` are part of the policy but no task carries
-them yet: dbus-dependent work (`bluetooth.yml`, `wifi_powersave.yml`) is already
-gated on the service existing in `ansible_facts.services`, and GUI work is gated
-on `bootstrap_gui`, which is false unless `display-manager.service` is currently
-running — and a host with no systemd has no such service, so WSL-1 reads as
-headless on its own. Tag new tasks with them rather than
+`requires_gui` is part of the policy but no task carries it yet: GUI work is
+gated on `bootstrap_gui`, which is false unless `display-manager.service` is
+currently running — and a host with no systemd has no such service, so WSL-1
+reads as headless on its own. dbus-dependent work in `bluetooth.yml` and
+`wifi_powersave.yml` is likewise already gated on the service existing in
+`ansible_facts.services`; `requires_dbus` is carried today only by
+`wsl_keyring.yml` (see "Login Keyring / libsecret" below), which gates on WSL
+detection rather than on the tag list. Tag new tasks with these rather than
 inventing a parallel mechanism.
 
 ### 3. Conditional skipping
@@ -237,6 +239,53 @@ Tasks:
 rather than skip if the role is run on WSL-1. That is acceptable only because the
 `kubernetes` role is commented out in `setup.yml` and, per the workaround above,
 should never target WSL-1. Tag them `requires_netfilter` if that changes.
+
+---
+
+### Login Keyring / libsecret
+
+**Location:** `roles/bootstrap/tasks/wsl_keyring.yml`
+
+Tasks (wrapped in a single `block`):
+- "Create the keyring with an empty password"
+- "Mark it as the default collection"
+
+**Reason:** Neither WSL generation runs a display manager, so nothing creates
+the user's default login keyring and nothing supplies a password to unlock it.
+The Secret Service still starts on demand, so the first libsecret client to ask
+for a secret — Azure PowerShell persisting its MSAL token cache, a git
+credential helper, anything else — raises a "choose a password for a new
+keyring" dialog. In a headless WSL session that dialog is unanswerable and
+reappears on every invocation.
+
+**Impact:** Without this, credential-storing tools either prompt endlessly or
+fail. With it, the keyring exists, is marked default, and auto-unlocks.
+
+**Workaround:** Set `bootstrap_wsl_keyring: false` to skip this and handle the
+keyring by hand.
+
+**Trade-off:** The keyring is encrypted with an empty password, so its contents
+are readable by anyone who can read the file. This is the same posture as a
+desktop login keyring auto-unlocked by PAM, and the file stays mode `0600` in
+the user's home — but do not use it to store secrets you would not leave in a
+dotfile. Tools that can avoid persisting a token at all should do so instead;
+for Azure PowerShell that is `Disable-AzContextAutosave`.
+
+**Tag:** `requires_dbus` — the first task in this repo to actually carry it.
+
+**Gate:** `bootstrap_wsl_version | int > 0` — runs on **both** WSL-1 and WSL-2,
+not just WSL-1 via `wsl1_incompatible_tags`. This is the inverse of every other
+entry here: the tag marks work that *needs* a session bus, and the gate selects
+hosts that *lack* a display manager to set the keyring up. A native host gets
+its keyring from the desktop session and needs nothing. The block is
+additionally skipped where `gnome-keyring-daemon` is not installed, since
+`gnome-keyring` is only ever pulled in as another package's dependency and a
+host without it has no Secret Service to prompt in the first place.
+
+**Note on the invoking user:** the role runs with `become: true`, so the
+keyring must be written to the *invoking* user's home rather than root's. The
+task resolves that from `ansible_facts.env.SUDO_USER`, falling back to
+`ansible_facts.user_id`, then looks the home directory up with `getent`.
 
 ---
 

@@ -14,6 +14,11 @@ bootstrap_ssh_pubkey: "~/.ssh/id_pillarsdotnet.pub"
 bootstrap_ssh_x11_forwarding: "no"
 # NetworkManager wifi.powersave: 2 = disable, 3 = enable.
 bootstrap_wifi_powersave: "2"
+# Whether to pre-create an empty-password login keyring on WSL hosts, so that
+# libsecret clients do not raise an unanswerable "choose a password for a new
+# keyring" dialog. Set false to leave the keyring alone and accept the prompts;
+# see docs/WSL1_COMPATIBILITY.md for the trade-off this makes.
+bootstrap_wsl_keyring: true
 # Which WSL this host is, if any: 0 = not WSL, 1 = WSL-1, 2 = WSL-2. WSL-1
 # reports a "4.4.0-NNNNN-Microsoft" kernel and WSL-2 a
 # "-microsoft-standard-WSL2" one; no native Ubuntu kernel carries either string.

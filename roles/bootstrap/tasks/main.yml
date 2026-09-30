@@ -49,6 +49,15 @@
 - name: "Disable Wi-Fi power-save"
   ansible.builtin.include_tasks: "wifi_powersave.yml"
   when: ansible_facts.services["NetworkManager.service"] is defined
+# Gated on WSL generally, not on WSL-1 via wsl1_incompatible_tags: the missing
+# piece is a display manager to create and unlock the login keyring, and
+# neither WSL generation has one. A native host - including a natively-run
+# VDI - gets its keyring from the desktop session and needs nothing here.
+- name: "Create a default keyring under WSL so libsecret does not prompt"
+  ansible.builtin.include_tasks: "wsl_keyring.yml"
+  when:
+    - bootstrap_wsl_version | int > 0
+    - bootstrap_wsl_keyring | bool
 - name: "Ensure the custom facts directory exists"
   ansible.builtin.file:
     group: "root"

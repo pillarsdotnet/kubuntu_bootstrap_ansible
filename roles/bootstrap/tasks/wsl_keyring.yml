@@ -1,0 +1,78 @@
+---
+# Under WSL there is no display manager, so nothing ever creates the user's
+# default login keyring and nothing supplies a password to unlock it. The
+# Secret Service still starts on demand, so the first client to ask for a
+# secret - Azure PowerShell persisting its MSAL token cache, git-credential
+# helpers, anything else using libsecret - triggers a "choose a password for
+# a new keyring" dialog. On a headless WSL session that dialog is either
+# unanswerable or reappears on every invocation.
+#
+# Creating the keyring up front with an empty password makes the Secret
+# Service usable without prompting. gnome-keyring-daemon --unlock reads the
+# password from stdin, and creates the keyring when none exists yet.
+#
+# The empty password is the point, and it is a real trade-off: the keyring is
+# encrypted with it, so its contents are effectively readable by anyone who
+# can read the file. That is the same posture as a desktop login keyring
+# auto-unlocked by PAM, and the file stays mode 0600 in the user's home. Set
+# bootstrap_wsl_keyring to false to opt out and accept the prompts instead.
+- name: "Look up the invoking user"
+  # This role runs with become: true, so the playbook's own user facts describe
+  # root, and writing the keyring into root's home would leave the real user
+  # still prompted. env.SUDO_USER is who called sudo; fall back to the
+  # connection user for the case where the play already runs as that account.
+  # Spelled via ansible_facts rather than the ansible_env/ansible_user_id
+  # top-level aliases, which INJECT_FACTS_AS_VARS deprecates for 2.24.
+  ansible.builtin.set_fact:
+    bootstrap_wsl_keyring_user: >-
+      {{ ansible_facts.env.SUDO_USER
+         | default(ansible_facts.user_id, true) }}
+- name: "Resolve that user's home directory"
+  ansible.builtin.getent:
+    database: "passwd"
+    key: "{{ bootstrap_wsl_keyring_user }}"
+# gnome-keyring is not in sources_packages; it arrives only as a dependency of
+# something else (libpam-gnome-keyring, docker credential helpers). A host
+# without it has no Secret Service to prompt in the first place, so there is
+# nothing to fix and the task below would just fail on a missing binary.
+- name: "Check whether gnome-keyring-daemon is installed"
+  ansible.builtin.stat:
+    path: "/usr/bin/gnome-keyring-daemon"
+  register: "bootstrap_wsl_keyring_daemon"
+- name: "Create the default keyring so libsecret clients do not prompt"
+  # getent_passwd values are the colon-separated passwd fields minus the name:
+  # [password, uid, gid, gecos, home, shell].
+  vars:
+    bootstrap_wsl_keyring_home: >-
+      {{ ansible_facts.getent_passwd[bootstrap_wsl_keyring_user][4] }}
+    bootstrap_wsl_keyring_dir: >-
+      {{ ansible_facts.getent_passwd[bootstrap_wsl_keyring_user][4]
+         }}/.local/share/keyrings
+  become: true
+  become_user: "{{ bootstrap_wsl_keyring_user }}"
+  when: bootstrap_wsl_keyring_daemon.stat.exists
+  tags:
+    - "requires_dbus"
+  block:
+    - name: "Create the keyring with an empty password"
+      # gnome-keyring-daemon writes login.keyring only when it is absent, so
+      # creates is what makes this idempotent; it also refuses to overwrite an
+      # existing keyring, so a host that already has one keeps its secrets.
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          printf '\n' | gnome-keyring-daemon --unlock --components=secrets
+        creates: "{{ bootstrap_wsl_keyring_dir }}/login.keyring"
+      # No changed_when: with creates, the shell module already reports changed
+      # only when it actually ran the command. Forcing it true made the task
+      # claim a change on every run even when the keyring was already there.
+      environment:
+        HOME: "{{ bootstrap_wsl_keyring_home }}"
+    # The daemon creates the keyring but not this alias, and a client asking
+    # for the *default* collection rather than one by name gets nothing
+    # without it - which is the same unanswerable prompt all over again.
+    - name: "Mark it as the default collection"
+      ansible.builtin.copy:
+        content: "login\n"
+        dest: "{{ bootstrap_wsl_keyring_dir }}/default"
+        mode: "u=rw,g=,o="
