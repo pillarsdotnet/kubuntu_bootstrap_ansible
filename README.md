@@ -219,7 +219,7 @@ ansible-playbook setup.yml -e "environment_profile=standard"
 
 # Or explicitly set skip lists
 ansible-playbook setup.yml \
-  -e "skip_repos=[github-desktop,font-manager-staging,libreoffice-frexh]" \
+  -e "skip_repos=[github-desktop,steam,libreoffice-frexh]" \
   -e "skip_packages=[steam,waydroid]"
 ```
 

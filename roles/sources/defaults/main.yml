@@ -41,12 +41,10 @@ sources_ubuntu_releases:
 # Repos dropped under the "vdi" profile, because they ship alpha or beta builds,
 # or code that no distribution has reviewed:
 #   - alpha/beta/snapshot suites: llvm (apt.llvm.org snapshots), mdatp
-#     ("nightly"), steam ("beta stable"), toolchain (ubuntu-toolchain-r/test),
-#     font-manager-staging (a "staging" PPA)
+#     ("nightly"), steam ("beta stable"), toolchain (ubuntu-toolchain-r/test)
 #   - Launchpad PPAs, where any account can upload and nothing is reviewed by
-#     the Ubuntu archive: ansible, canon-scanner, libreoffice-frexh,
-#     linux-wifi-hotspot, mkusb, obs_studio, openshot, pillarsdotnet,
-#     pipewire, tlp, wireplumber
+#     the Ubuntu archive: libreoffice-frexh, linux-wifi-hotspot, openshot,
+#     pillarsdotnet, pipewire, tlp, wireplumber
 #   - third-party rebuilds and mirrors of someone else's software:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
 # Vendor repos for the vendor's own software (1password, acli, azure-cli,
@@ -59,16 +57,11 @@ sources_ubuntu_releases:
 #   sources_repos: {common: {ubuntu: {suites: "resolute resolute-security ..."}}}
 # (ansible.cfg sets hash_behaviour = merge, so a single nested key is enough.)
 vdi_skip_repos:
-  - "ansible"
-  - "canon-scanner"
-  - "font-manager-staging"
   - "github-desktop"
   - "libreoffice-frexh"
   - "linux-wifi-hotspot"
   - "llvm"
   - "mdatp"
-  - "mkusb"
-  - "obs_studio"
   - "openshot"
   - "pillarsdotnet"
   - "pipewire"
@@ -181,6 +174,13 @@ sources_preferences:
     Package: powershell
     Pin: release l=microsoft-ubuntu-noble-prod noble
     Pin-Priority: 500
+# Dropped 2026-10-03: ansible, canon-scanner, font-manager-staging, mkusb and
+# obs_studio. Their Launchpad signing keys bind with SHA-1, which the Sequoia
+# verifier in stonking's apt rejects since 2026-02-01, so every apt update
+# failed on them - and the Ubuntu keyserver has no re-signed copies. Stonking's
+# archive carries ansible, font-manager, mkusb and obs-studio itself; homelab
+# keeps the Canon cnijfilter and scangearmp2 drivers it already has, without
+# updates. Do not loosen apt's SHA-1 policy to bring them back: it is global.
 sources_repos:
   common:
     1password:
@@ -194,11 +194,6 @@ sources_repos:
       server: "https://acli.atlassian.com"
       signed_by: "/gpg/public-key.asc"
       uris: "/linux/deb"
-    ansible:
-      comment: "Configuration management over ssh"
-      fingerprint: "6125e2a8c77f2818fb7bd15b93c4a3fd7bb9c367"
-      server: "https://ppa.launchpadcontent.net/ansible/ansible"
-      suites: "oracular"
     azure-cli:
       comment: "Microsoft Azure command-line interface"
       # packages.microsoft.com/repos/azure-cli only ships Ubuntu suites up to
@@ -334,15 +329,6 @@ sources_repos:
       signed_by: "/keys/microsoft.asc"
       uris: "/repos/code"
   desktop:
-    canon-scanner:
-      fingerprint: "e85cce014112132659e6f35d3ba6e6cce411cfcf"
-      server: "https://ppa.launchpadcontent.net/thierry-f/fork-michael-gruz"
-      suites: "noble"
-      types: "deb deb-src"
-    font-manager-staging:
-      fingerprint: "ac6b0292dfb6091a96555511f738b17df9e284b7"
-      server: "http://ppa.launchpad.net/font-manager/staging"
-      suites: "plucky"
     github-desktop:
       server: "https://mirror.mwt.me/shiftkey-desktop"
       signed_by: "/gpgkey"
@@ -360,19 +346,11 @@ sources_repos:
       fingerprint: "cdde43ba4de3f09d7ce7016673aee920ad55f5a0"
       server: "http://ppa.launchpad.net/libreoffice/ppa"
       suites: "questing"
-    mkusb:
-      fingerprint: "29d76ada2d15a87bf4c68b823729827454b8c8ac"
-      server: "https://ppa.launchpadcontent.net/mkusb/ppa"
-      suites: "{{ sources_ubuntu_release }}"
     mozilla:
       server: "https://packages.mozilla.org/apt"
       signed_by: "/repo-signing-key.gpg"
       suites: "mozilla"
       uris: ""
-    obs_studio:
-      fingerprint: "bc7345f522079769f5bbe987efc71127f425e228"
-      server: "http://ppa.launchpad.net/obsproject/obs-studio"
-      suites: "questing"
     openshot:
       fingerprint: "b118f18f5c2aa998436f1603dc9e326890348c30"
       server: "http://ppa.launchpad.net/openshot.developers/ppa"
