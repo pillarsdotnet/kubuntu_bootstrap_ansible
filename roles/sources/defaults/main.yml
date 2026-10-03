@@ -40,8 +40,8 @@ sources_ubuntu_releases:
 #     font-manager-staging (a "staging" PPA)
 #   - Launchpad PPAs, where any account can upload and nothing is reviewed by
 #     the Ubuntu archive: ansible, canon-scanner, libreoffice-frexh,
-#     linux-wifi-hotspot, mkusb, obs_studio, openshot, pipewire, tlp,
-#     wireplumber
+#     linux-wifi-hotspot, mkusb, obs_studio, openshot, pillarsdotnet,
+#     pipewire, tlp, wireplumber
 #   - third-party rebuilds and mirrors of someone else's software:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
 # Vendor repos for the vendor's own software (1password, acli, azure-cli,
@@ -65,6 +65,7 @@ vdi_skip_repos:
   - "mkusb"
   - "obs_studio"
   - "openshot"
+  - "pillarsdotnet"
   - "pipewire"
   - "steam"
   - "tlp"
@@ -264,6 +265,15 @@ sources_repos:
       signed_by: "/gpgkey/nodesource-repo.gpg.key"
       suites: "nodistro"
       uris: "/node_24.x"
+    # Our own PPA: packages forked with local fixes, and backports. Its
+    # uploads target resolute only, so it stays there on stonking hosts too,
+    # where the archive's newer builds simply outrank it. Switch to
+    # sources_ubuntu_release once it publishes for stonking.
+    pillarsdotnet:
+      comment: "Bob's Ubuntu Archive: own packages and forks with local fixes"
+      fingerprint: "7a2741845196b3304fc10a2ceebcb7bca0059163"
+      server: "https://ppa.launchpadcontent.net/pillarsdotnet/ppa"
+      suites: "resolute"
     puppet:
       comment: "Client-server configuration management"
       components: "puppet-tools"
