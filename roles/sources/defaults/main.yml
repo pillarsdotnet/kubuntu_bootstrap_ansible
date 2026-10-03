@@ -101,9 +101,21 @@ sources_obsolete:
 # /lib/modules/*/updates/dkms/evdi.ko. Deliberately do NOT also install the
 # distro evdi-dkms/libevdi1 packages: the installer reinstalls its own copy
 # unconditionally, leaving two DKMS owners of one module name.
+# The 6.3.0 installer bundles EVDI 1.14.15, which does not build on kernel 7.3
+# (stonking): 7.3 renamed struct drm_atomic_state to drm_atomic_commit. The
+# kernel's postinst then fails at the DKMS step, leaving the new kernel with no
+# initrd as the default GRUB entry. Synaptics has no newer release, so
+# tasks/main.yml swaps the kernel module in the bundle for the upstream one
+# below. Only the module: the bundle's userspace library stays 1.14.15, the one
+# DisplayLinkManager 6.3.0 was built against, and it accepts any 1.x module
+# from 1.9 up. Drop "evdi" once a Synaptics release bundles a module this new.
 sources_displaylink:
   cache: "/var/cache/displaylink"
   checksum: "sha256:7269856c7527060c513215ce1b5a36fef074d8e89cab89bcab13df342acce098"
+  evdi:
+    checksum: "sha256:b120df303d14be09062157aab17a8598746c0caf2e076ff3388b4091186cf2d9"
+    url: "https://github.com/DisplayLink/evdi/archive/refs/tags/v1.15.1.tar.gz"
+    version: "1.15.1"
   release: "6.3.0"
   url: "https://www.synaptics.com/sites/default/files/exe_files/2026-06/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.3-EXE.zip"
   version: "6.3.0-48"
@@ -1039,7 +1051,6 @@ sources_packages:
     - "kde-inotify-survey"
     - "kde-plasma-desktop"
     - "kde-spectacle"
-    - "kde-style-breeze-qt5"
     - "kdeconnect"
     - "kdegraphics-thumbnailers"
     - "kdenetwork-filesharing"
