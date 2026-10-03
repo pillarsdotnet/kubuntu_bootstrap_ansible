@@ -1,0 +1,76 @@
+---
+# console=tty0 keeps kernel messages on the local screen as well; the serial
+# ports follow it, so the last of them is /dev/console.
+- name: "Work out the console= arguments for the serial ports"
+  ansible.builtin.set_fact:
+    bootstrap_serial_cmdline: >-
+      {{ ['console=tty0'] + bootstrap_serial_consoles
+         | map('regex_replace', '^(.*)$',
+               'console=\1,' ~ bootstrap_serial_speed ~ 'n8') | list }}
+# Ask which loader booted the host this time, not which is installed: bobse16
+# has systemd-boot on its ESP but boots GRUB, and GRUB 2.14 sets the same
+# LoaderInfo EFI variable systemd-boot does, so neither of those can tell.
+- name: "Check which boot loader started the host"
+  ansible.builtin.shell:
+    cmd: "bootctl status 2>/dev/null | sed -n '/^Current Boot Loader:/,/^$/p'"
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  register: "bootstrap_boot_loader"
+
+# systemd-boot reads the kernel command line from /etc/kernel/cmdline when
+# kernel-install writes a boot entry. Replace only its console= arguments, so
+# root= and anything else set by hand survive, and keep the file's layout of
+# one argument per line or all on one.
+- name: "Put the serial consoles on the systemd-boot kernel command line"
+  when: "'systemd-boot' in bootstrap_boot_loader.stdout"
+  block:
+    - name: "Read the current kernel command line"
+      ansible.builtin.slurp:
+        src: "/etc/kernel/cmdline"
+      register: "bootstrap_kernel_cmdline"
+    - name: "Write the kernel command line with the serial consoles"
+      ansible.builtin.copy:
+        content: "{{ bootstrap_new_kernel_cmdline }}\n"
+        dest: "/etc/kernel/cmdline"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Rewrite the systemd-boot entries"
+      vars:
+        bootstrap_old_kernel_cmdline: "{{ bootstrap_kernel_cmdline.content | b64decode | trim }}"
+        bootstrap_new_kernel_cmdline: >-
+          {{ ((bootstrap_old_kernel_cmdline.split()
+               | reject('match', '^console=') | list)
+              + bootstrap_serial_cmdline)
+             | join('\n' if '\n' in bootstrap_old_kernel_cmdline else ' ') }}
+
+# update-grub sources /etc/default/grub.d/*.cfg after /etc/default/grub, so a
+# drop-in can append to GRUB_CMDLINE_LINUX without rewriting the main file.
+# GRUB's own menu goes on serial only for ttyS0-3, the legacy ports GRUB can
+# address by unit number; it cannot reach a port on a PCI card.
+- name: "Put the serial consoles on the GRUB kernel command line"
+  ansible.builtin.copy:
+    content: |
+      # Managed by kubuntu_bootstrap_ansible (roles/bootstrap).
+      GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX {{ bootstrap_serial_cmdline | join(' ') }}"
+      {% set legacy = bootstrap_serial_consoles | select('match', '^ttyS[0-3]$') | list %}
+      {% if legacy %}
+      GRUB_TERMINAL="console serial"
+      GRUB_SERIAL_COMMAND="serial --unit={{ legacy[0][4:] }} --speed={{ bootstrap_serial_speed }} --word=8 --parity=no --stop=1"
+      {% endif %}
+    dest: "/etc/default/grub.d/90-serial-console.cfg"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  notify: "Update GRUB"
+  when: "'systemd-boot' not in bootstrap_boot_loader.stdout"
+
+- name: "Start a login prompt on each serial console"
+  ansible.builtin.systemd_service:
+    enabled: true
+    name: "serial-getty@{{ item }}.service"
+    state: "started"
+  loop: "{{ bootstrap_serial_consoles }}"
+  tags:
+    - "requires_systemd"

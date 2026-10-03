@@ -49,6 +49,11 @@
 - name: "Disable Wi-Fi power-save"
   ansible.builtin.include_tasks: "wifi_powersave.yml"
   when: ansible_facts.services["NetworkManager.service"] is defined
+- name: "Put the kernel console and a login prompt on the serial ports"
+  ansible.builtin.include_tasks: "serial_console.yml"
+  when:
+    - bootstrap_serial_consoles | length > 0
+    - bootstrap_wsl_version | int == 0
 # Gated on WSL generally, not on WSL-1 via wsl1_incompatible_tags: the missing
 # piece is a display manager to create and unlock the login keyring, and
 # neither WSL generation has one. A native host - including a natively-run

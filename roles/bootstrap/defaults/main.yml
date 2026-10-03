@@ -7,6 +7,14 @@ bootstrap_bluetooth_resume_delay: "2"
 # to "" so a play with gather_facts: false reads as "not WSL" instead of failing.
 bootstrap_kernel_release: "{{ ansible_facts.kernel | default('') | lower }}"
 bootstrap_locale: "en_US.UTF-8"
+# Serial ports to put the kernel console and a login prompt on, such as
+# ["ttyS0"], so a host that fails to boot can be reached over a null-modem
+# cable. The last one listed becomes /dev/console, where an "(initramfs)"
+# prompt appears. Empty leaves the host alone. Set it in
+# host_vars/<hostname>.yml only for a host with a serial port wired up:
+# homelab has ["ttyS4", "ttyS5"] on a CH384 PCI card; racknerd, a VPS, has none.
+bootstrap_serial_consoles: []
+bootstrap_serial_speed: 115200
 bootstrap_ssh_agent_forwarding: "yes"
 bootstrap_ssh_password: "no"
 bootstrap_ssh_port: 65432
