@@ -6,6 +6,9 @@ bootstrap_bluetooth_resume_delay: "2"
 # Lower-cased kernel release, used only by bootstrap_wsl_version below. Defaults
 # to "" so a play with gather_facts: false reads as "not WSL" instead of failing.
 bootstrap_kernel_release: "{{ ansible_facts.kernel | default('') | lower }}"
+# "systemd-boot" moves a UEFI host from GRUB to systemd-boot; empty leaves
+# the boot loader alone. See tasks/systemd_boot.yml for the two-boot switch.
+bootstrap_boot_loader: ""
 bootstrap_locale: "en_US.UTF-8"
 # Serial ports to put the kernel console and a login prompt on, such as
 # ["ttyS0"], so a host that fails to boot can be reached over a null-modem

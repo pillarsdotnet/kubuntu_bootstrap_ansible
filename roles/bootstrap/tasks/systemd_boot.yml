@@ -1,0 +1,129 @@
+---
+# Switching boot loader takes two runs and a reboot between them, so a
+# broken entry can never become the default:
+#   1. While GRUB still boots the host, its kernel options are the ones known
+#      to work. Copy any that /etc/kernel/cmdline lacks, make sure every
+#      installed kernel has an entry, and set BootNext so only the next boot
+#      tries systemd-boot. If that boot fails, a power cycle is back on GRUB.
+#   2. Once systemd-boot has booted the host, move the entry that did it to
+#      the front of BootOrder.
+# After the switch /etc/kernel/cmdline is the source of truth and is only
+# ever added to here, so options set by hand there survive.
+- name: "Check that the host boots with UEFI"
+  ansible.builtin.stat:
+    path: "/sys/firmware/efi"
+  register: "bootstrap_efi"
+- name: "Refuse to switch a host that does not boot with UEFI"
+  ansible.builtin.assert:
+    that: "bootstrap_efi.stat.exists"
+    fail_msg: "systemd-boot needs UEFI; this host boots with legacy BIOS."
+    quiet: true
+- name: "Install systemd-boot"
+  ansible.builtin.apt:
+    name: ["efibootmgr", "systemd-boot"]
+    state: "present"
+- name: "Check whether systemd-boot is on the ESP"
+  ansible.builtin.command:
+    cmd: "bootctl is-installed"
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  register: "bootstrap_systemd_boot_installed"
+- name: "Put systemd-boot on the ESP"
+  ansible.builtin.command:
+    cmd: "bootctl install"
+  when: bootstrap_systemd_boot_installed.rc != 0
+
+- name: "Carry GRUB's kernel options over to systemd-boot"
+  when: "'systemd-boot' not in bootstrap_running_loader.stdout"
+  block:
+    # Sourced the way update-grub does, so drop-ins such as kdump-tools'
+    # crashkernel= are included.
+    - name: "Read the kernel options GRUB boots with"
+      ansible.builtin.shell:
+        cmd: |
+          . /etc/default/grub
+          for drop_in in /etc/default/grub.d/*.cfg; do
+            [ -e "$drop_in" ] && . "$drop_in"
+          done
+          echo "root=UUID=$(findmnt -no UUID /) ro" \
+            "$GRUB_CMDLINE_LINUX $GRUB_CMDLINE_LINUX_DEFAULT"
+      changed_when: false
+      check_mode: false
+      register: "bootstrap_grub_cmdline"
+    - name: "Read the current systemd-boot kernel options"
+      ansible.builtin.slurp:
+        src: "/etc/kernel/cmdline"
+      failed_when: false
+      register: "bootstrap_kernel_cmdline"
+    # An option counts as present when one with the same name is, so a
+    # different value set by hand is kept rather than duplicated.
+    - name: "Add GRUB's options that the systemd-boot command line lacks"
+      ansible.builtin.copy:
+        content: "{{ (bootstrap_old_options + bootstrap_missing_options) | join(bootstrap_separator) }}\n"
+        dest: "/etc/kernel/cmdline"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Rewrite the systemd-boot entries"
+      vars:
+        bootstrap_old_text: "{{ (bootstrap_kernel_cmdline.content | default('')) | b64decode | trim }}"
+        bootstrap_old_options: "{{ bootstrap_old_text.split() }}"
+        bootstrap_old_names: "{{ bootstrap_old_options | map('regex_replace', '=.*$', '') | list }}"
+        bootstrap_missing_options: >-
+          {{ bootstrap_grub_cmdline.stdout.split()
+             | reject('in', bootstrap_old_options)
+             | select('regex', '^(?!(' ~ (bootstrap_old_names | map('regex_escape') | join('|') or '$^') ~ ')(=|$))')
+             | unique | list }}
+        bootstrap_separator: "{{ '\n' if '\n' in bootstrap_old_text else ' ' }}"
+
+# Kernel packages add their own entry on install, but a kernel installed
+# before systemd-boot was has none.
+- name: "Add a systemd-boot entry for every installed kernel that lacks one"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      boot=$(bootctl --print-boot-path)
+      for kernel in /boot/vmlinuz-*; do
+        version=${kernel#/boot/vmlinuz-}
+        if ! grep -qsx "version[[:space:]]*$version" "$boot"/loader/entries/*.conf; then
+          kernel-install add "$version" "$kernel" "/boot/initrd.img-$version"
+          echo "added $version"
+        fi
+      done
+  register: "bootstrap_entries_added"
+  changed_when: "'added' in bootstrap_entries_added.stdout"
+
+- name: "Try systemd-boot for the next boot only"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      entry=$(efibootmgr | sed -n 's/^Boot\([0-9A-F]\{4\}\)\*\{0,1\} .*\\EFI\\systemd\\systemd-bootx64\.efi.*/\1/p' | head -n1)
+      [ -n "$entry" ] || { echo "no systemd-boot firmware entry" >&2; exit 1; }
+      if efibootmgr | grep -qx "BootNext: $entry"; then exit 0; fi
+      efibootmgr --bootnext "$entry" >/dev/null
+      echo "BootNext set to $entry"
+  register: "bootstrap_bootnext"
+  changed_when: "'BootNext set' in bootstrap_bootnext.stdout"
+  when: "'systemd-boot' not in bootstrap_running_loader.stdout"
+- name: "Say the host must reboot to try systemd-boot"
+  ansible.builtin.debug:
+    msg: >-
+      systemd-boot is set up and will be tried once on the next reboot. If
+      that boot works, the next run of this role makes it the default; if it
+      fails, a power cycle boots GRUB as before.
+  when: "'systemd-boot' not in bootstrap_running_loader.stdout"
+
+- name: "Make the entry that booted systemd-boot the first in BootOrder"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      current=$(efibootmgr | sed -n 's/^BootCurrent: //p')
+      order=$(efibootmgr | sed -n 's/^BootOrder: //p')
+      [ "${order%%,*}" = "$current" ] && exit 0
+      rest=$(printf '%s' "$order" | tr ',' '\n' | grep -vx "$current" | paste -sd, -)
+      efibootmgr --bootorder "$current${rest:+,$rest}" >/dev/null
+      echo "BootOrder now starts with $current"
+  register: "bootstrap_bootorder"
+  changed_when: "'BootOrder now' in bootstrap_bootorder.stdout"
+  when: "'systemd-boot' in bootstrap_running_loader.stdout"

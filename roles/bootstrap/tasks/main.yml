@@ -58,8 +58,13 @@
   changed_when: false
   check_mode: false
   failed_when: false
-  register: "bootstrap_boot_loader"
+  register: "bootstrap_running_loader"
   when: bootstrap_wsl_version | int == 0
+- name: "Boot with systemd-boot instead of GRUB"
+  ansible.builtin.include_tasks: "systemd_boot.yml"
+  when:
+    - bootstrap_boot_loader == "systemd-boot"
+    - bootstrap_wsl_version | int == 0
 - name: "Put the kernel console and a login prompt on the serial ports"
   ansible.builtin.include_tasks: "serial_console.yml"
   when:

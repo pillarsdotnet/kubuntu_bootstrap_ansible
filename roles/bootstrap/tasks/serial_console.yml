@@ -13,7 +13,7 @@
 # root= and anything else set by hand survive, and keep the file's layout of
 # one argument per line or all on one.
 - name: "Put the serial consoles on the systemd-boot kernel command line"
-  when: "'systemd-boot' in bootstrap_boot_loader.stdout"
+  when: "'systemd-boot' in bootstrap_running_loader.stdout"
   block:
     - name: "Read the current kernel command line"
       ansible.builtin.slurp:
@@ -54,7 +54,7 @@
     mode: "u=rw,g=r,o=r"
     owner: "root"
   notify: "Update GRUB"
-  when: "'systemd-boot' not in bootstrap_boot_loader.stdout"
+  when: "'systemd-boot' not in bootstrap_running_loader.stdout"
 
 - name: "Start a login prompt on each serial console"
   ansible.builtin.systemd_service:
