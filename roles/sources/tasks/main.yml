@@ -184,6 +184,10 @@
          + [sources_mail_transport_agent] }}
     extra: "{{ sources_packages.desktop if bootstrap_gui | bool else [] }}"
     filtered_packages: "{{ (all_packages | reject('in', sources_skip_packages) | list) | unique }}"
+# Before DisplayLink, so EVDI is not built for kernels about to be purged.
+- name: "Purge old kernels and their boot entries"
+  ansible.builtin.include_tasks: "kernels.yml"
+  when: not (sources_wsl | bool)
 - name: "Install the DisplayLink USB graphics driver"
   when: bootstrap_gui | bool and environment_profile != "vdi"
   tags:

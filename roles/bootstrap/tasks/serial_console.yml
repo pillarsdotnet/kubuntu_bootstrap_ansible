@@ -7,16 +7,6 @@
       {{ ['console=tty0'] + bootstrap_serial_consoles
          | map('regex_replace', '^(.*)$',
                'console=\1,' ~ bootstrap_serial_speed ~ 'n8') | list }}
-# Ask which loader booted the host this time, not which is installed: bobse16
-# has systemd-boot on its ESP but boots GRUB, and GRUB 2.14 sets the same
-# LoaderInfo EFI variable systemd-boot does, so neither of those can tell.
-- name: "Check which boot loader started the host"
-  ansible.builtin.shell:
-    cmd: "bootctl status 2>/dev/null | sed -n '/^Current Boot Loader:/,/^$/p'"
-  changed_when: false
-  check_mode: false
-  failed_when: false
-  register: "bootstrap_boot_loader"
 
 # systemd-boot reads the kernel command line from /etc/kernel/cmdline when
 # kernel-install writes a boot entry. Replace only its console= arguments, so

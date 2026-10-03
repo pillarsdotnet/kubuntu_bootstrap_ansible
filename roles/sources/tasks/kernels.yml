@@ -1,0 +1,59 @@
+---
+# Keep the two newest kernels, plus the running one if it is older - a host
+# upgraded but not yet rebooted still needs the kernel it is running - and
+# purge every other. A kernel's version is the "X.Y.Z-N" in its package names,
+# taken from every versioned linux-* package rather than only linux-image, so
+# leftovers whose image is long gone (homelab had linux-tools-6.14.0-24) are
+# purged too. A package belongs to version X when its name has "-X" followed
+# by "-" or its end, so 7.0.0-14 never matches 7.0.0-140.
+- name: "Find the packages of kernels to purge"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      running=$(uname -r | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+-[0-9]+).*/\1/')
+      packages=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'linux-*' \
+        | awk '$1 ~ /^[ih]i/ {print $2}')
+      versions=$(printf '%s\n' "$packages" \
+        | grep -oE -- '-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+(-|$)' \
+        | sed -E 's/^-//; s/-$//' | sort -uV)
+      keep=$( { printf '%s\n' "$versions" | tail -n 2; echo "$running"; } | sort -u)
+      for version in $versions; do
+        printf '%s\n' "$keep" | grep -qxF "$version" && continue
+        pattern=-$(printf '%s' "$version" | sed 's/\./\\./g')'(-|$)'
+        printf '%s\n' "$packages" | grep -E -- "$pattern" || true
+      done
+  changed_when: false
+  check_mode: false
+  register: "sources_old_kernel_packages"
+- name: "Purge old kernels"
+  ansible.builtin.apt:
+    name: "{{ sources_old_kernel_packages.stdout_lines }}"
+    purge: true
+    state: "absent"
+  when: sources_old_kernel_packages.stdout_lines | length > 0
+
+# kernel-install writes a loader entry plus a copy of the kernel and initrd
+# to the ESP for every kernel, about 100 MB each, but nothing removes them
+# when apt purges the kernel. Stale entries pile up in the boot menu and fail
+# to boot if chosen; homelab had five, from 6.14 to 6.19. An entry is stale
+# when the kernel it names has no /boot/vmlinuz, which the kernel package
+# owns. Entries without a "version" line, such as memtest, are kept. Hosts
+# without systemd-boot have no entries, and the loop finds nothing.
+- name: "Find systemd-boot entries for kernels that are no longer installed"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      boot=$(bootctl --print-boot-path 2>/dev/null) || exit 0
+      for entry in "$boot"/loader/entries/*.conf; do
+        [ -e "$entry" ] || continue
+        version=$(sed -n 's/^version[[:space:]]\{1,\}//p' "$entry")
+        [ -n "$version" ] || continue
+        [ -e "/boot/vmlinuz-$version" ] || echo "$version"
+      done | sort -u
+  changed_when: false
+  check_mode: false
+  register: "sources_stale_kernels"
+- name: "Remove the boot entry and ESP files of each uninstalled kernel"
+  ansible.builtin.command:
+    cmd: "kernel-install remove {{ item }}"
+  loop: "{{ sources_stale_kernels.stdout_lines }}"
