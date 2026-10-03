@@ -15,6 +15,24 @@ environment_profile: "standard"
 skip_packages: []
 skip_repos: []
 
+# Which Ubuntu release the archive and the PPAs that follow it are written
+# for. The sources role ends in a full upgrade, so this is the release the host
+# ends up running. Interim releases (26.10 "stonking") get nine months of
+# support, which is fine for hosts upgraded by hand every six months but not
+# for a VDI or a WSL distribution, which stay on the 26.04 LTS. WSL-1 and
+# WSL-2 kernels both carry "microsoft" in their release string. This is worked
+# out here rather than from bootstrap_wsl_version because setup.yml does not
+# run the bootstrap role.
+sources_wsl: "{{ 'microsoft' in (ansible_facts.kernel | default('') | lower) }}"
+sources_ubuntu_release: >-
+  {{ 'resolute' if environment_profile == 'vdi' or sources_wsl | bool
+     else 'stonking' }}
+# Oldest first. tasks/main.yml refuses to write sources for a release older
+# than the one a host already runs, which apt cannot downgrade to.
+sources_ubuntu_releases:
+  - "resolute"
+  - "stonking"
+
 # Repos dropped under the "vdi" profile, because they ship alpha or beta builds,
 # or code that no distribution has reviewed:
 #   - alpha/beta/snapshot suites: llvm (apt.llvm.org snapshots), mdatp
@@ -31,8 +49,8 @@ skip_repos: []
 # microsoft-prod, mozilla, nodesource, puppet, slack, tailscale, vscode) stay:
 # their provenance is accountable.
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
-# host with no archive at all. Its "resolute-proposed" suite is a pre-release
-# pocket; to drop just that, override the suites for one host instead:
+# host with no archive at all. Its "-proposed" suite is a pre-release pocket;
+# to drop just that, override the suites for one host instead:
 #   sources_repos: {common: {ubuntu: {suites: "resolute resolute-security ..."}}}
 # (ansible.cfg sets hash_behaviour = merge, so a single nested key is enough.)
 vdi_skip_repos:
@@ -172,6 +190,7 @@ sources_repos:
       signed_by: "/keys/microsoft.asc"
       suites: "noble"
       uris: "/repos/azure-cli"
+    # No "stonking" (26.10) suite here yet; stay on resolute until there is.
     docker:
       comment: "Industry-standard containerization tool"
       components: "stable"
@@ -190,6 +209,7 @@ sources_repos:
       server: "https://cli.github.com/packages"
       signed_by: "/githubcli-archive-keyring.gpg"
       uris: ""
+    # No "stonking" (26.10) suite here yet; stay on resolute until there is.
     hashicorp:
       comment: "Terraform and related tools"
       server: "https://apt.releases.hashicorp.com"
@@ -212,7 +232,8 @@ sources_repos:
     # unversioned metapackages (clang, clang-format, ...) still depend on the
     # previous major, which lives only in the versioned "-23" suite. Without
     # both, "apt install clang-format" is unsatisfiable. Bump the "-23" when
-    # the snapshot's metapackages move to the next major.
+    # the snapshot's metapackages move to the next major. apt.llvm.org has no
+    # "stonking" (26.10) tree yet; stay on resolute until there is.
     llvm:
       comment: "LLVM compilers such as Clang"
       server: "http://apt.llvm.org"
@@ -250,6 +271,7 @@ sources_repos:
       signed_by: "/pubkey.gpg"
       suites: "noble"
       uris: ""
+    # No "stonking" (26.10) suite here yet; stay on resolute until there is.
     tailscale:
       comment: "Free-to-use VPN"
       server: "https://pkgs.tailscale.com/stable/ubuntu"
@@ -274,7 +296,9 @@ sources_repos:
       components: "main restricted universe multiverse"
       fingerprint: "f6ecb3762474eda9d21b7022871920d1991bc93c"
       server: "http://us.archive.ubuntu.com"
-      suites: "resolute resolute-backports resolute-proposed resolute-security resolute-updates"
+      suites: >-
+        {{ ['', '-backports', '-proposed', '-security', '-updates']
+           | map('regex_replace', '^', sources_ubuntu_release) | join(' ') }}
       # deb-src so "apt source" and "apt build-dep" work, for rebuilding an
       # archive package with local patches (e.g. gimp for the pillarsdotnet PPA).
       types: "deb deb-src"
@@ -313,7 +337,7 @@ sources_repos:
     mkusb:
       fingerprint: "29d76ada2d15a87bf4c68b823729827454b8c8ac"
       server: "https://ppa.launchpadcontent.net/mkusb/ppa"
-      suites: "resolute"
+      suites: "{{ sources_ubuntu_release }}"
     mozilla:
       server: "https://packages.mozilla.org/apt"
       signed_by: "/repo-signing-key.gpg"
@@ -326,7 +350,7 @@ sources_repos:
     openshot:
       fingerprint: "b118f18f5c2aa998436f1603dc9e326890348c30"
       server: "http://ppa.launchpad.net/openshot.developers/ppa"
-      suites: "resolute"
+      suites: "{{ sources_ubuntu_release }}"
     pipewire:
       fingerprint: "fc43b7352bcc0ec8af2eeb8b25088a0359807596"
       server: "https://ppa.launchpadcontent.net/pipewire-debian/pipewire-upstream"

@@ -44,6 +44,21 @@
   loop_control:
     label: "{{ item.key }}"
 
+# A host already on stonking that is later run as a VDI would otherwise get
+# resolute sources, and the full upgrade below cannot go backwards from there.
+# A release missing from the list (an older WSL install, say) is not checked.
+- name: "Check that the target Ubuntu release is not older than the running one"
+  ansible.builtin.assert:
+    that:
+      - >-
+        ansible_facts.distribution_release not in sources_ubuntu_releases or
+        sources_ubuntu_releases.index(ansible_facts.distribution_release) <=
+        sources_ubuntu_releases.index(sources_ubuntu_release)
+    fail_msg: >-
+      This host runs {{ ansible_facts.distribution_release }}, but the sources
+      would be written for the older {{ sources_ubuntu_release }}.
+    quiet: true
+
 - name: "Filter repositories based on environment profile"
   ansible.builtin.set_fact:
     filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', sources_skip_repos) | list | items2dict }}"
