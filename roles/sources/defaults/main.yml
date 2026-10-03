@@ -1201,7 +1201,6 @@ sources_packages:
     - "plasma-welcome"
     - "plasma-widgets-addons"
     - "plasma-workspace-wallpapers"
-    - "plasma5-integration"
     - "pmars"
     - "pocketsphinx-en-us"
     - "policykit-desktop-privileges"
