@@ -26,6 +26,24 @@
       {{ (skip_repos +
           (vdi_skip_repos if environment_profile == 'vdi' else [])) | unique }}
 
+# Check both groups, not just the ones this host uses, so a typo in a desktop
+# repo fails on a server run too rather than waiting for the next desktop.
+- name: "Check that every repository uses only keys the template reads"
+  ansible.builtin.assert:
+    that:
+      - "item.value.keys() | difference(sources_repo_keys) | length == 0"
+      - "'server' in item.value"
+      - "'fingerprint' in item.value or 'signed_by' in item.value"
+    fail_msg: >-
+      sources_repos entry "{{ item.key }}" has unknown keys
+      {{ item.value.keys() | difference(sources_repo_keys) | list }}, or lacks
+      "server" or a "fingerprint"/"signed_by". Allowed keys:
+      {{ sources_repo_keys | join(', ') }}.
+    quiet: true
+  loop: "{{ sources_repos.values() | map('dict2items') | flatten(levels=1) }}"
+  loop_control:
+    label: "{{ item.key }}"
+
 - name: "Filter repositories based on environment profile"
   ansible.builtin.set_fact:
     filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', sources_skip_repos) | list | items2dict }}"

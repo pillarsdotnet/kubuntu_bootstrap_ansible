@@ -88,6 +88,20 @@ sources_displaylink:
   release: "6.3.0"
   url: "https://www.synaptics.com/sites/default/files/exe_files/2026-06/DisplayLink%20USB%20Graphics%20Software%20for%20Ubuntu6.3-EXE.zip"
   version: "6.3.0-48"
+# Every key sources.j2 reads from a sources_repos entry. The template ignores
+# any other key without complaint, so a misspelling silently falls back to
+# sources_defaults: canon-scanner had "type:" for "types:" from the first
+# commit and never got its deb-src line. tasks/main.yml rejects anything else.
+sources_repo_keys:
+  - "arch"
+  - "comment"
+  - "components"
+  - "fingerprint"
+  - "server"
+  - "signed_by"
+  - "suites"
+  - "types"
+  - "uris"
 sources_defaults:
   arch: "amd64"
   components: "main"
@@ -261,6 +275,9 @@ sources_repos:
       fingerprint: "f6ecb3762474eda9d21b7022871920d1991bc93c"
       server: "http://us.archive.ubuntu.com"
       suites: "resolute resolute-backports resolute-proposed resolute-security resolute-updates"
+      # deb-src so "apt source" and "apt build-dep" work, for rebuilding an
+      # archive package with local patches (e.g. gimp for the pillarsdotnet PPA).
+      types: "deb deb-src"
     vscode:
       comment: "Free code editor from Microsoft"
       server: "https://packages.microsoft.com"
@@ -271,7 +288,7 @@ sources_repos:
       fingerprint: "e85cce014112132659e6f35d3ba6e6cce411cfcf"
       server: "https://ppa.launchpadcontent.net/thierry-f/fork-michael-gruz"
       suites: "noble"
-      type: "deb deb-src"
+      types: "deb deb-src"
     font-manager-staging:
       fingerprint: "ac6b0292dfb6091a96555511f738b17df9e284b7"
       server: "http://ppa.launchpad.net/font-manager/staging"
