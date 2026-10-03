@@ -279,6 +279,26 @@
     # replaced one stays in DKMS and is rebuilt for every new kernel - which is
     # how 1.14.15 broke the 7.3 kernel's postinst. Remove all but the pinned
     # version, and only once that one is installed, so EVDI is never missing.
+    # The installer builds EVDI for the running kernel only. Build it for the
+    # rest too, before the old version is removed below, or booting any other
+    # installed kernel would leave DisplayLink with no module at all. This
+    # fails if the installer above did not add the pinned version to DKMS,
+    # which its ignore_errors would otherwise hide.
+    - name: "Build the pinned EVDI module for every installed kernel"
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          for build in /lib/modules/*/build; do
+            [ -d "$build" ] || continue
+            kernel=$(basename "$(dirname "$build")")
+            if ! dkms status -m evdi -v {{ sources_displaylink.evdi.version }} \
+                -k "$kernel" | grep -q installed; then
+              dkms install evdi/{{ sources_displaylink.evdi.version }} -k "$kernel"
+              echo "built for $kernel"
+            fi
+          done
+      register: "sources_displaylink_evdi_kernels"
+      changed_when: "'built for' in sources_displaylink_evdi_kernels.stdout"
     - name: "Check which EVDI modules DKMS holds after installing"
       ansible.builtin.command:
         cmd: "dkms status -m evdi"
