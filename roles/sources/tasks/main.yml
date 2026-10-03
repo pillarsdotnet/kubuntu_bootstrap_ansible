@@ -184,6 +184,16 @@
          + [sources_mail_transport_agent] }}
     extra: "{{ sources_packages.desktop if bootstrap_gui | bool else [] }}"
     filtered_packages: "{{ (all_packages | reject('in', sources_skip_packages) | list) | unique }}"
+# After the install, which enables each package's service and would
+# otherwise start one this host does not use.
+- name: "Stop and disable services this host does not use"
+  ansible.builtin.systemd_service:
+    enabled: false
+    name: "{{ item }}"
+    state: "stopped"
+  loop: "{{ sources_disabled_services }}"
+  tags:
+    - "requires_systemd"
 # Before DisplayLink, so EVDI is not built for kernels about to be purged.
 - name: "Purge old kernels and their boot entries"
   ansible.builtin.include_tasks: "kernels.yml"

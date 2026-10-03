@@ -14,6 +14,11 @@ environment_profile: "standard"
 # host_vars/<hostname>.yml.
 skip_packages: []
 skip_repos: []
+# Services installed from sources_packages that this host should not run,
+# such as ["kubelet"]. Installing a package enables its service, so naming it
+# here keeps it stopped and disabled through every run. Set per host in
+# host_vars/<hostname>.yml.
+sources_disabled_services: []
 
 # Which Ubuntu release the archive and the PPAs that follow it are written
 # for. The sources role ends in a full upgrade, so this is the release the host
