@@ -451,7 +451,6 @@ sources_packages:
     - "e2fsprogs-l10n"
     - "eatmydata"
     - "edid-decode"
-    - "emacs-nox"
     - "enchant-2"
     - "equivs"
     - "evemu-tools"
@@ -718,6 +717,11 @@ sources_packages:
     - "yt-dlp"
     - "zstd"
     - "zsync"
+  # Installed only where bootstrap_gui is false, in place of what "desktop"
+  # provides: emacs-nox and emacs-pgtk conflict, and listing both made apt
+  # keep whichever came last, flipping between them from run to run.
+  headless:
+    - "emacs-nox"
   desktop:
     - "acm"
     - "adb"

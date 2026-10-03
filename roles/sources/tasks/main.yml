@@ -182,7 +182,9 @@
     all_packages: >-
       {{ sources_packages.common + extra + vdi_extra_packages
          + [sources_mail_transport_agent] }}
-    extra: "{{ sources_packages.desktop if bootstrap_gui | bool else [] }}"
+    extra: >-
+      {{ sources_packages.desktop if bootstrap_gui | bool
+         else sources_packages.headless }}
     filtered_packages: "{{ (all_packages | reject('in', sources_skip_packages) | list) | unique }}"
 # After the install, which enables each package's service and would
 # otherwise start one this host does not use.
