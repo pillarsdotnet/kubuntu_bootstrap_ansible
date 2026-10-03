@@ -178,9 +178,10 @@ sources_preferences:
 # obs_studio. Their Launchpad signing keys bind with SHA-1, which the Sequoia
 # verifier in stonking's apt rejects since 2026-02-01, so every apt update
 # failed on them - and the Ubuntu keyserver has no re-signed copies. Stonking's
-# archive carries ansible, font-manager, mkusb and obs-studio itself; homelab
-# keeps the Canon cnijfilter and scangearmp2 drivers it already has, without
-# updates. Do not loosen apt's SHA-1 policy to bring them back: it is global.
+# archive carries ansible, font-manager, mkusb and obs-studio itself, and the
+# Canon cnijfilter and scangearmp2 drivers were purged from homelab, the only
+# host that had them. Do not loosen apt's SHA-1 policy to bring any of these
+# back: it is global.
 sources_repos:
   common:
     1password:
