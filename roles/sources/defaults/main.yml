@@ -277,15 +277,14 @@ sources_repos:
       signed_by: "/gpgkey/nodesource-repo.gpg.key"
       suites: "nodistro"
       uris: "/node_24.x"
-    # Our own PPA: packages forked with local fixes, and backports. Its
-    # uploads target resolute only, so it stays there on stonking hosts too,
-    # where the archive's newer builds simply outrank it. Switch to
-    # sources_ubuntu_release once it publishes for stonking.
+    # Our own PPA: packages forked with local fixes, and backports. It
+    # publishes for every release sources_ubuntu_release can name, so follow
+    # the host like the archive does.
     pillarsdotnet:
       comment: "Bob's Ubuntu Archive: own packages and forks with local fixes"
       fingerprint: "7a2741845196b3304fc10a2ceebcb7bca0059163"
       server: "https://ppa.launchpadcontent.net/pillarsdotnet/ppa"
-      suites: "resolute"
+      suites: "{{ sources_ubuntu_release }}"
     puppet:
       comment: "Client-server configuration management"
       components: "puppet-tools"
