@@ -51,7 +51,15 @@
   ansible.builtin.command:
     cmd: "update-grub"
   changed_when: true
+# Not "kernel-install add-all": it looks for kernels under /usr/lib/modules
+# and Ubuntu keeps them in /boot, so it finds none and still exits 0. Naming
+# the initrd also stops the dracut hook from building a new one.
 - name: "Rewrite the systemd-boot entries"
-  ansible.builtin.command:
-    cmd: "kernel-install add-all"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      for kernel in /boot/vmlinuz-*; do
+        version=${kernel#/boot/vmlinuz-}
+        kernel-install add "$version" "$kernel" "/boot/initrd.img-$version"
+      done
   changed_when: true
