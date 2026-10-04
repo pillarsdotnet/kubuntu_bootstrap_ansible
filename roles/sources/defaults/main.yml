@@ -1024,6 +1024,7 @@ sources_packages:
     - "jstest-gtk"
     - "kaccounts-providers"
     - "kamera"
+    - "kamoso"
     - "kcalc"
     - "kcharselect"
     - "kde-config-fcitx5"
