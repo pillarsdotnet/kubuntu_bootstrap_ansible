@@ -148,6 +148,23 @@ sources_defaults:
 # 2026-10-01, and without the credentials the "Upgrade existing packages"
 # task fails with 401 as soon as a griffo package is installed.
 sources_apt_auth: {}
+# Repos that are unusable without a sources_apt_auth entry of the same name:
+# their metadata is public, but every package download needs the credentials,
+# so a host whose vault lacks the entry would 401 on each install or upgrade
+# from the repo. tasks/main.yml leaves such a repo out of filtered_repos
+# entirely - no .sources file is written, and the unmanaged-sources cleanup
+# removes one written by an earlier run that still had the credentials.
+sources_auth_required_repos:
+  - "griffo"
+# Packages that, on the current target release, exist nowhere but an
+# auth-required repo above. When the repo is skipped for missing credentials
+# these must be skipped too: a package with no candidate at all fails the
+# whole "Install new packages" apt transaction, taking every other package
+# down with it. uv: resolute's archive carries no uv at all, while stonking's
+# ships one (older than griffo's), so on stonking the archive build installs
+# instead and nothing need be skipped.
+sources_auth_required_packages:
+  griffo: "{{ ['uv'] if sources_ubuntu_release == 'resolute' else [] }}"
 # Files written to /etc/apt/preferences.d/, keyed by filename.
 sources_preferences:
   kubernetes: |

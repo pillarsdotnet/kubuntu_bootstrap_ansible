@@ -17,14 +17,28 @@
 # profile rather than being replaced by it. (The previous form assigned
 # skip_repos from skip_repos, which cannot resolve: set_fact may not read the
 # variable it is defining.)
-- name: "Determine repositories and packages to skip based on environment profile"
+# The credentials check: a repo in sources_auth_required_repos whose entry is
+# missing from the vault's sources_apt_auth must not be installed at all -
+# with it present, apt resolves packages to it and then 401s on every fetch.
+# Skipping it here keeps its .sources file from being written, and the
+# unmanaged-sources cleanup below deletes a copy a credentialed earlier run
+# wrote. Packages that only that repo could supply on this release
+# (sources_auth_required_packages) are skipped along with it.
+- name: "Determine repositories and packages to skip based on profile and credentials"
   ansible.builtin.set_fact:
     sources_skip_packages: >-
       {{ (skip_packages +
-          (vdi_skip_packages if environment_profile == 'vdi' else [])) | unique }}
+          (vdi_skip_packages if environment_profile == 'vdi' else []) +
+          (missing_auth_repos | select('in', sources_auth_required_packages)
+           | map('extract', sources_auth_required_packages) | flatten))
+         | unique }}
     sources_skip_repos: >-
       {{ (skip_repos +
-          (vdi_skip_repos if environment_profile == 'vdi' else [])) | unique }}
+          (vdi_skip_repos if environment_profile == 'vdi' else []) +
+          missing_auth_repos) | unique }}
+  vars:
+    missing_auth_repos: >-
+      {{ sources_auth_required_repos | reject('in', sources_apt_auth) | list }}
 
 # Check both groups, not just the ones this host uses, so a typo in a desktop
 # repo fails on a server run too rather than waiting for the next desktop.

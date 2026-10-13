@@ -135,6 +135,14 @@ packages (`apt update` and browsing stay free). After subscribing at
 password arrive by email. They go in `sources_apt_auth` below, which the
 sources role writes to `/etc/apt/auth.conf.d/griffo.conf` on every host.
 
+If the vault has no `griffo` entry, the sources role skips the repo rather
+than installing one that would 401 on every download: no
+`griffo.sources` file is written, and one left behind by an earlier
+credentialed run is removed by the unmanaged-sources cleanup. On a
+`resolute` host, whose archive carries no `uv` at all, the `uv` package is
+skipped along with the repo; on `stonking` the archive's own (older) `uv`
+installs instead.
+
 ### 4. Create the vault file
 
 ```bash
