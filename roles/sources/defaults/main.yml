@@ -223,6 +223,21 @@ sources_repos:
       server: "https://cli.github.com/packages"
       signed_by: "/githubcli-archive-keyring.gpg"
       uris: ""
+    # Dario Griffo's unofficial repo of current dev-tool builds (uv, lazygit,
+    # eza, ...), rebuilt within hours of each upstream release. Here for uv,
+    # where the archive's story varies by release: resolute has no uv at all,
+    # and stonking's "uv" (source: uv-full) does ship the full uv/uvx CLI but
+    # lags upstream (0.11 vs 0.13 at the time of writing) - not to be confused
+    # with python3-uv-build, which is only the PEP 517 build backend. This
+    # repo's higher version outranks the archive's at equal priority, no pin
+    # needed.
+    # No "stonking" (26.10) suite here yet; stay on resolute until there is.
+    griffo:
+      comment: "Unofficial builds of modern dev tools; here for astral's uv"
+      server: "https://deb.griffo.io"
+      signed_by: "/EA0F721D231FDD3A0A17B9AC7808B4DD62C41256.asc"
+      suites: "resolute"
+      uris: "/apt"
     # No "stonking" (26.10) suite here yet; stay on resolute until there is.
     hashicorp:
       comment: "Terraform and related tools"
@@ -708,6 +723,7 @@ sources_packages:
     - "unzip"
     - "util-linux-extra"
     - "uuid-runtime"
+    - "uv"
     - "vim"
     - "w3m"
     - "wamerican-insane"
