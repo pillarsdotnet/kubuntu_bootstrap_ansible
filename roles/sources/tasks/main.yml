@@ -76,6 +76,22 @@
     mode: "u=rw,g=r,o=r"
   loop: "{{ filtered_repos | dict2items }}"
 
+# Before the first update_cache below: a repo that authenticates downloads
+# (griffo) returns 401 on every fetch until its credentials are in place.
+# no_log keeps the passwords out of the recap and any -v output.
+- name: "Write apt credentials to /etc/apt/auth.conf.d/ folder"
+  ansible.builtin.copy:
+    content: |
+      machine {{ item.value.machine }}
+      login {{ item.value.login }}
+      password {{ item.value.password }}
+    dest: "/etc/apt/auth.conf.d/{{ item.key }}.conf"
+    owner: "root"
+    group: "root"
+    mode: "u=rw,g=,o="
+  loop: "{{ sources_apt_auth | dict2items }}"
+  no_log: true
+
 - name: "Remove unmanaged .sources files from /etc/apt/sources.list.d/ (VDI cleanup)"
   ansible.builtin.shell:
     cmd: |

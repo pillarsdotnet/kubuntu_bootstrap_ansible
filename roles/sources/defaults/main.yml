@@ -138,6 +138,16 @@ sources_defaults:
   suites: "stable"
   types: "deb"
   uris: "/ubuntu"
+# HTTP Basic credentials for repositories that require them, written to
+# /etc/apt/auth.conf.d/<key>.conf (apt reads these as root before dropping to
+# _apt, so root-only 0600 files work). Keyed by filename; each entry holds
+# machine, login and password. This default stays empty: the real values are
+# secrets and live in the vaulted group_vars/all/vault.yml - see README
+# "Secrets: Ansible Vault". The griffo repo needs one: deb.griffo.io's
+# metadata is public, but downloading packages requires a subscription since
+# 2026-10-01, and without the credentials the "Upgrade existing packages"
+# task fails with 401 as soon as a griffo package is installed.
+sources_apt_auth: {}
 # Files written to /etc/apt/preferences.d/, keyed by filename.
 sources_preferences:
   kubernetes: |

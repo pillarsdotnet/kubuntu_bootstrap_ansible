@@ -11,8 +11,8 @@ server and out of version control.
 
 | Path | In git? | Purpose |
 |------|---------|---------|
-| `group_vars/all.yml` | No | Group-wide variables (hosts, ports, etc.) |
-| `group_vars/vault.yml` | No | Encrypted secrets (Ansible Vault) |
+| `group_vars/all/vars.yml` | No | Group-wide variables (hosts, ports, etc.) |
+| `group_vars/all/vault.yml` | No | Encrypted secrets (Ansible Vault) |
 | `host_vars/<hostname>.yml` | No | Per-host variables |
 | `inventory.yml` | No | List of hosts to configure |
 ---
@@ -92,10 +92,15 @@ Connection details (Ansible SSH user, port, etc.) go in
 
 ## Secrets: Ansible Vault
 
-Sensitive values — currently `tailscale_api_key` — live in
-`group_vars/vault.yml`, which is an Ansible Vault-encrypted file.
-The file is excluded from git via `group_vars/.gitignore` so it never
+Sensitive values — currently `tailscale_api_key` and `sources_apt_auth` —
+live in `group_vars/all/vault.yml`, which is an Ansible Vault-encrypted file.
+The directory is excluded from git via `group_vars/.gitignore` so it never
 leaves your local machine.
+
+The file sits under `group_vars/all/`, not at `group_vars/vault.yml`:
+Ansible only loads `group_vars` entries whose name matches a group, and no
+group is called "vault", so a top-level `vault.yml` is silently ignored.
+Everything in a `group_vars/all/` directory loads for every host.
 
 ### 1. Choose a vault password
 
@@ -107,13 +112,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))" > ~/.ansible/vault
 chmod 600 ~/.ansible/vault_pass
 ```
 
-To avoid typing `--vault-password-file` on every command, add this to
-`ansible.cfg` in the project root (create the file if it does not exist):
-
-```ini
-[defaults]
-vault_password_file = ~/.ansible/vault_pass
-```
+The project's `ansible.cfg` already points `vault_password_file` at
+`~/.ansible/vault_pass`, so no flag is needed once that file exists.
 
 ### 2. Get a Tailscale API key
 
@@ -127,18 +127,31 @@ vault_password_file = ~/.ansible/vault_pass
 > VIP (`10.254.0.1/32`) as an enabled subnet route on each control plane
 > node, enabling Tailscale HA failover between them.
 
-### 3. Create the vault file
+### 3. Get deb.griffo.io credentials
+
+Since 2026-10-01, deb.griffo.io requires a subscription to download
+packages (`apt update` and browsing stay free). After subscribing at
+<https://deb.griffo.io/>, the login (the email address paid with) and
+password arrive by email. They go in `sources_apt_auth` below, which the
+sources role writes to `/etc/apt/auth.conf.d/griffo.conf` on every host.
+
+### 4. Create the vault file
 
 ```bash
-ansible-vault create group_vars/vault.yml
+ansible-vault create group_vars/all/vault.yml
 ```
 
 This opens your `$EDITOR`. Enter the following content, substituting
-your actual key:
+your actual values:
 
 ```yaml
 ---
 tailscale_api_key: "tskey-api-REPLACE_WITH_YOUR_KEY"
+sources_apt_auth:
+  griffo:
+    machine: "deb.griffo.io"
+    login: "REPLACE_WITH_SUBSCRIPTION_EMAIL"
+    password: "REPLACE_WITH_SUBSCRIPTION_PASSWORD"
 ```
 
 Save and close the editor. The file is now AES256-encrypted on disk.
@@ -146,21 +159,21 @@ Save and close the editor. The file is now AES256-encrypted on disk.
 To verify it was created correctly:
 
 ```bash
-ansible-vault view group_vars/vault.yml
+ansible-vault view group_vars/all/vault.yml
 ```
 
 To edit it later:
 
 ```bash
-ansible-vault edit group_vars/vault.yml
+ansible-vault edit group_vars/all/vault.yml
 ```
 
-### 4. Re-keying or rotating the vault password
+### 5. Re-keying or rotating the vault password
 
 If you need to change the vault password (e.g. after a key rotation):
 
 ```bash
-ansible-vault rekey group_vars/vault.yml
+ansible-vault rekey group_vars/all/vault.yml
 ```
 
 ---
