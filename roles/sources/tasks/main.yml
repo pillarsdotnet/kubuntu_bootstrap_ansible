@@ -196,6 +196,13 @@
     upgrade: "full"
   tags:
     - "requires_systemd"
+# No ignore_errors here, deliberately. The module runs one all-or-nothing
+# apt transaction, so any failure - a package with no candidate, a solver
+# conflict, a 401 - means *nothing* was installed; ignoring it just moved the
+# visible error to whichever later task first touched a missing package (the
+# disabled-services one, usually), far from the apt message that explains it.
+# A package that is legitimately absent on some host or release belongs in
+# skip_packages or sources_auth_required_packages, not in a blanket ignore.
 - name: "Install new packages"
   ansible.builtin.apt:
     auto_install_module_deps: true
@@ -204,7 +211,6 @@
     install_recommends: true
     name: "{{ filtered_packages }}"
     state: "present"
-  ignore_errors: true
   tags:
     - "install_optional_packages"
   vars:
