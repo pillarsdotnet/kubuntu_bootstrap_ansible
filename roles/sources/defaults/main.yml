@@ -584,7 +584,14 @@ sources_packages:
     - "libfindlib-ocaml-dev"
     - "libfl-dev"
     - "libfreezethaw-perl"
-    - "libgccjit0=14.*"
+    # No version wildcard here: the apt module resolves a wildcard to the
+    # highest matching version in the cache, pin priorities be damned. With
+    # "libgccjit0=14.*" that became 14.4.0-3ubuntu1 from stonking-proposed
+    # (NotAutomatic, priority 100), whose gcc-14-base dependency the solver
+    # would not pull from proposed, and the whole install transaction failed
+    # on every host. The bare name installs the candidate the pin policy
+    # actually chooses.
+    - "libgccjit0"
     - "libghc-protobuf-dev"
     - "libgit-wrapper-perl"
     - "libgpars-groovy-java"
