@@ -1,0 +1,29 @@
+#!/bin/bash
+# Single-instance foot: if a real foot window is already open, focus it via a
+# KWin script; otherwise launch /usr/bin/foot. Installed as ~/.local/bin/foot
+# so it shadows the real binary in PATH; the desktop entry points here too.
+# This wrapper's own process is also named "foot", so identify the real
+# terminal by its executable path rather than by name.
+
+for pid in $(pgrep -x foot); do
+    if [ "$(readlink -f "/proc/$pid/exe" 2>/dev/null)" = "/usr/bin/foot" ]; then
+        js=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/focus-foot-XXXXXX.js")
+        cat > "$js" <<'EOF'
+for (const w of workspace.windowList()) {
+    if (w.resourceClass === "foot") {
+        workspace.activeWindow = w;
+        print("focus-foot: activated foot window");
+        break;
+    }
+}
+EOF
+        name="focus-foot-$$"
+        qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" "$name" >/dev/null
+        qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start
+        qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$name" >/dev/null
+        rm -f "$js"
+        exit 0
+    fi
+done
+
+exec /usr/bin/foot "$@"

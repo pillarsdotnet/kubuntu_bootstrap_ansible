@@ -1,0 +1,6 @@
+---
+
+# The desktop login user whose terminal configuration this role manages. This
+# is deliberately not ansible_user: that is the connection account ("ansible"),
+# while these files belong to the person at the keyboard.
+terminal_user: "pillarsdotnet"

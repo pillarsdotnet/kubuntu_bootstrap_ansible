@@ -12,3 +12,4 @@
     - "tailscale"
     # - "kubernetes"
     - "printing"
+    - "terminal"

@@ -1,0 +1,101 @@
+---
+
+# Terminal setup for the desktop user, configured 2026-10-16:
+#
+#  - foot opens fullscreen at Hack 29pt (83 columns, so emacs shows 80 text
+#    columns beside its 3-column line-number gutter - the same grid fullscreen
+#    Konsole yields at 24pt; foot renders a given point size smaller) and
+#    attaches to the persistent zellij session "main".
+#  - A wrapper at ~/.local/bin/foot shadows /usr/bin/foot and focuses the
+#    already-running foot window via a KWin script instead of opening a second
+#    one; a desktop-entry override routes menu launches through it too.
+#  - zellij carries the ~/.tmux.conf bindings (prefix Ctrl-z) and options.
+#  - qtchooser points its tool shims (qdbus among them) at Qt6: the qt4/qt5
+#    configs Ubuntu ships dangle, and /usr/lib/qt6/bin/qdbus is the only real
+#    qdbus on the system, so plain "qdbus" fails without this.
+#
+# The packages themselves (foot, zellij, qdbus-qt6) come from sources_packages.
+
+- name: "Configure foot, zellij and qtchooser for the desktop user"
+  when: bootstrap_gui | default(false) | bool
+  block:
+    - name: "Create the user configuration directories"
+      ansible.builtin.file:
+        path: "/home/{{ terminal_user }}/{{ item }}"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rwx,g=rx,o=rx"
+        state: "directory"
+      loop:
+        - ".config/foot"
+        - ".config/qtchooser"
+        - ".config/zellij"
+        - ".local/bin"
+        - ".local/share/applications"
+
+    - name: "Deploy foot.ini"
+      ansible.builtin.copy:
+        content: |
+          # foot terminal configuration
+          # Fullscreen, with the font sized so the screen holds 83 columns like Konsole
+          # (83 columns gives emacs 80 text columns beside its line-number gutter).
+
+          [main]
+          font=Hack:size=29
+          initial-window-mode=fullscreen
+          # Attach to the persistent zellij session "main", creating it if needed,
+          # so a new foot window resumes where the last one left off.
+          shell=/usr/bin/zellij attach --create main
+        dest: "/home/{{ terminal_user }}/.config/foot/foot.ini"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+
+    - name: "Deploy the single-instance foot wrapper"
+      ansible.builtin.copy:
+        src: "foot-wrapper"
+        dest: "/home/{{ terminal_user }}/.local/bin/foot"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rwx,g=rx,o=rx"
+
+    - name: "Deploy the foot desktop-entry override"
+      ansible.builtin.copy:
+        content: |
+          [Desktop Entry]
+          Type=Application
+          Exec=/home/{{ terminal_user }}/.local/bin/foot
+          Icon=foot
+          Terminal=false
+          Categories=System;TerminalEmulator;
+          Keywords=shell;prompt;command;commandline;
+          SingleMainWindow=true
+
+          Name=Foot
+          GenericName=Terminal
+          Comment=A wayland native terminal emulator
+        dest: "/home/{{ terminal_user }}/.local/share/applications/foot.desktop"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+
+    - name: "Deploy the zellij configuration"
+      ansible.builtin.copy:
+        src: "zellij-config.kdl"
+        dest: "/home/{{ terminal_user }}/.config/zellij/config.kdl"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+
+    - name: "Point qtchooser at Qt6"
+      ansible.builtin.copy:
+        content: |
+          /usr/lib/qt6/bin
+          /usr/lib/x86_64-linux-gnu
+        dest: "/home/{{ terminal_user }}/.config/qtchooser/{{ item }}"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+      loop:
+        - "default.conf"
+        - "qt6.conf"
