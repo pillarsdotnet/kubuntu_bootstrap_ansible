@@ -147,49 +147,8 @@ keybinds clear-defaults=true {
             SwitchToMode "normal"
         }
     }
-    shared_except "locked" {
-        bind "Alt left" { GoToPreviousTab; }
-        bind "Alt down" { MoveFocus "down"; }
-        bind "Alt up" { MoveFocus "up"; }
-        bind "Alt right" { GoToNextTab; }
-        bind "Alt +" { Resize "Increase"; }
-        bind "Alt -" { Resize "Decrease"; }
-        bind "Alt =" { Resize "Increase"; }
-        bind "Alt [" { PreviousSwapLayout; }
-        bind "Alt ]" { NextSwapLayout; }
-        bind "Alt f" { ToggleFloatingPanes; }
-        bind "Ctrl g" { SwitchToMode "locked"; }
-        bind "Alt h" { MoveFocusOrTab "left"; }
-        bind "Alt i" { MoveTab "left"; }
-        bind "Alt j" { MoveFocus "down"; }
-        bind "Alt k" { MoveFocus "up"; }
-        bind "Alt l" { MoveFocusOrTab "right"; }
-        bind "Alt n" { NewPane; }
-        bind "Alt o" { MoveTab "right"; }
-        bind "Alt p" { TogglePaneInGroup; }
-        bind "Alt Shift p" { ToggleGroupMarking; }
-        bind "Ctrl q" { Quit; }
-    }
-    shared_except "locked" "move" {
-        bind "Ctrl h" { SwitchToMode "move"; }
-    }
-    shared_except "locked" "session" {
-        bind "Ctrl o" { SwitchToMode "session"; }
-    }
     shared_except "locked" "scroll" "search" "tmux" {
         bind "Ctrl z" { SwitchToMode "tmux"; }
-    }
-    shared_except "locked" "scroll" "search" {
-        bind "Ctrl s" { SwitchToMode "scroll"; }
-    }
-    shared_except "locked" "tab" {
-        bind "Ctrl t" { NewTab; }
-    }
-    shared_except "locked" "pane" {
-        bind "Ctrl p" { SwitchToMode "pane"; }
-    }
-    shared_except "locked" "resize" {
-        bind "Ctrl n" { SwitchToMode "resize"; }
     }
     shared_except "normal" "locked" "entersearch" {
         bind "enter" { SwitchToMode "normal"; }
@@ -248,9 +207,36 @@ keybinds clear-defaults=true {
         bind "%" { NewPane "right"; SwitchToMode "normal"; }
         bind "," { SwitchToMode "renametab"; }
         bind "[" { SwitchToMode "scroll"; }
-        bind "Ctrl z" { Write 26; SwitchToMode "normal"; }
+        bind "Ctrl z" { SwitchToMode "normal"; }
         bind "Ctrl c" { NewTab; SwitchToMode "normal"; }
         bind "Ctrl a" { ToggleTab; SwitchToMode "normal"; }
+        bind "Ctrl g" { SwitchToMode "locked"; }
+        bind "Ctrl h" { SwitchToMode "move"; }
+        bind "Ctrl n" { SwitchToMode "resize"; }
+        bind "Ctrl o" { SwitchToMode "session"; }
+        bind "Ctrl p" { SwitchToMode "pane"; }
+        bind "Ctrl q" { Quit; }
+        bind "Ctrl s" { SwitchToMode "scroll"; }
+        bind "Ctrl t" { NewTab; SwitchToMode "normal"; }
+        bind "Alt left" { GoToPreviousTab; SwitchToMode "normal"; }
+        bind "Alt down" { MoveFocus "down"; SwitchToMode "normal"; }
+        bind "Alt up" { MoveFocus "up"; SwitchToMode "normal"; }
+        bind "Alt right" { GoToNextTab; SwitchToMode "normal"; }
+        bind "Alt +" { Resize "Increase"; SwitchToMode "normal"; }
+        bind "Alt -" { Resize "Decrease"; SwitchToMode "normal"; }
+        bind "Alt =" { Resize "Increase"; SwitchToMode "normal"; }
+        bind "Alt [" { PreviousSwapLayout; SwitchToMode "normal"; }
+        bind "Alt ]" { NextSwapLayout; SwitchToMode "normal"; }
+        bind "Alt f" { ToggleFloatingPanes; SwitchToMode "normal"; }
+        bind "Alt h" { MoveFocusOrTab "left"; SwitchToMode "normal"; }
+        bind "Alt i" { MoveTab "left"; SwitchToMode "normal"; }
+        bind "Alt j" { MoveFocus "down"; SwitchToMode "normal"; }
+        bind "Alt k" { MoveFocus "up"; SwitchToMode "normal"; }
+        bind "Alt l" { MoveFocusOrTab "right"; SwitchToMode "normal"; }
+        bind "Alt n" { NewPane; SwitchToMode "normal"; }
+        bind "Alt o" { MoveTab "right"; SwitchToMode "normal"; }
+        bind "Alt p" { TogglePaneInGroup; SwitchToMode "normal"; }
+        bind "Alt Shift p" { ToggleGroupMarking; SwitchToMode "normal"; }
         bind "c" { NewTab; SwitchToMode "normal"; }
         bind "h" { MoveFocus "left"; SwitchToMode "normal"; }
         bind "j" { MoveFocus "down"; SwitchToMode "normal"; }
@@ -460,7 +446,7 @@ web_client {
 //   - true (default)
 //   - false
 // 
-// session_serialization false
+session_serialization false
  
 // Whether pane viewports are serialized along with the session, default is false
 // Options:
