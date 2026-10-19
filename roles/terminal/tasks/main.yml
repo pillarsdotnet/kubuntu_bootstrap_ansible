@@ -25,15 +25,21 @@
 #    bash-preexec), and zzz_ble_attach.sh runs ble-attach last, as ble.sh
 #    expects. ~/.bashrc itself only guards interactivity and sources
 #    ~/.zellij.d (when outside zellij) and ~/.bashrc.d.
-#  - Only those three ~/.bashrc.d snippets are managed here; the rest of the
-#    directory (aliases, gpg, completion) is personal and left alone, as is
-#    everything in ~/.zellij.d (session exports, tokens - never committed).
+#  - fnm (from the pillarsdotnet PPA, via sources_packages) replaces nvm.
+#    ~/.zellij.d/fnm.sh exports FNM_DIR=~/.fnm and evals "fnm env" once per
+#    session; "alias nvm=fnm" in ~/.bashrc.d/alias.sh keeps nvm muscle memory
+#    working. The nvm hook (~/.zellij.d/nvm.sh) and its NVM_DIR export are
+#    removed where found (added 2026-10-19).
+#  - Only those three ~/.bashrc.d snippets, the nvm=fnm alias line, and
+#    ~/.zellij.d/fnm.sh are managed here; the rest of both directories
+#    (aliases, gpg, completion, session exports, tokens - never committed)
+#    is personal and left alone.
 #  - qtchooser points its tool shims (qdbus among them) at Qt6: the qt4/qt5
 #    configs Ubuntu ships dangle, and /usr/lib/qt6/bin/qdbus is the only real
 #    qdbus on the system, so plain "qdbus" fails without this.
 #
-# The packages themselves (foot, zellij, ble.sh, atuin, qdbus-qt6) come from
-# sources_packages.
+# The packages themselves (foot, zellij, ble.sh, atuin, qdbus-qt6, fnm) come
+# from sources_packages.
 
 - name: "Configure foot, zellij and qtchooser for the desktop user"
   when: bootstrap_gui | default(false) | bool
@@ -74,6 +80,37 @@
         - "zz_atuin.sh"
         - "zzz_ble_attach.sh"
 
+    - name: "Deploy the fnm session hook"
+      ansible.builtin.copy:
+        src: "zellij.d/fnm.sh"
+        dest: "/home/{{ terminal_user }}/.zellij.d/fnm.sh"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+
+    - name: "Remove the nvm hook that fnm.sh replaces"
+      ansible.builtin.file:
+        path: "/home/{{ terminal_user }}/.zellij.d/nvm.sh"
+        state: "absent"
+
+    # 0_export.sh is personal (see above), so only the one stale line goes;
+    # a host without the file is already clean.
+    - name: "Remove the NVM_DIR export only nvm needed"
+      ansible.builtin.lineinfile:
+        path: "/home/{{ terminal_user }}/.zellij.d/0_export.sh"
+        regexp: '^export NVM_DIR='
+        state: "absent"
+
+    - name: "Alias nvm to fnm"
+      ansible.builtin.lineinfile:
+        path: "/home/{{ terminal_user }}/.bashrc.d/alias.sh"
+        regexp: "^alias nvm="
+        line: "alias nvm='fnm'"
+        create: true
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+
     - name: "Deploy foot.ini"
       ansible.builtin.copy:
         content: |
@@ -84,7 +121,7 @@
           [main]
           font=Hack:size=29
           initial-window-mode=fullscreen
-          # Source the session-scoped setup in ~/.zellij.d (exports, gpg unlock, nvm
+          # Source the session-scoped setup in ~/.zellij.d (exports, gpg unlock, fnm
           # PATH) once, so every pane inherits it without re-running it, then attach to
           # the persistent zellij session "main", creating it if needed, so a new foot
           # window resumes where the last one left off.

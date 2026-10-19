@@ -76,6 +76,7 @@ vdi_skip_repos:
 # friends are in the Ubuntu archive too, so dropping their PPA just pins them
 # back to the distribution build rather than removing the software.
 vdi_skip_packages:
+  - "fnm"              # only the pillarsdotnet PPA carries it
   - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
   - "steam-libs-amd64"
 
@@ -506,6 +507,7 @@ sources_packages:
     - "finalrd"
     - "firebird3.0-server-core"
     - "flatpak-builder"
+    - "fnm"
     - "forgejo"
     - "forgejo-runner"
     - "friendly-recovery"
