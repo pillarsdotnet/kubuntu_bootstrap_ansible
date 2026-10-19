@@ -18,11 +18,22 @@
 #    Open windows are detected by their footclient processes, since the
 #    always-running server is itself named "foot".
 #  - zellij carries the ~/.tmux.conf bindings (prefix Ctrl-z) and options.
+#  - bash line editing comes from ble.sh, with atuin history search riding its
+#    hooks (added 2026-10-18). The load order in ~/.bashrc.d is load-bearing:
+#    0_ble.sh sources ble.sh with --attach=none, zz_atuin.sh runs "atuin init"
+#    (which sees BLE_VERSION and registers through blehook rather than
+#    bash-preexec), and zzz_ble_attach.sh runs ble-attach last, as ble.sh
+#    expects. ~/.bashrc itself only guards interactivity and sources
+#    ~/.zellij.d (when outside zellij) and ~/.bashrc.d.
+#  - Only those three ~/.bashrc.d snippets are managed here; the rest of the
+#    directory (aliases, gpg, completion) is personal and left alone, as is
+#    everything in ~/.zellij.d (session exports, tokens - never committed).
 #  - qtchooser points its tool shims (qdbus among them) at Qt6: the qt4/qt5
 #    configs Ubuntu ships dangle, and /usr/lib/qt6/bin/qdbus is the only real
 #    qdbus on the system, so plain "qdbus" fails without this.
 #
-# The packages themselves (foot, zellij, qdbus-qt6) come from sources_packages.
+# The packages themselves (foot, zellij, ble.sh, atuin, qdbus-qt6) come from
+# sources_packages.
 
 - name: "Configure foot, zellij and qtchooser for the desktop user"
   when: bootstrap_gui | default(false) | bool
@@ -35,11 +46,33 @@
         mode: "u=rwx,g=rx,o=rx"
         state: "directory"
       loop:
+        - ".bashrc.d"
         - ".config/foot"
         - ".config/qtchooser"
         - ".config/zellij"
         - ".local/bin"
         - ".local/share/applications"
+        - ".zellij.d"
+
+    - name: "Deploy .bashrc"
+      ansible.builtin.copy:
+        src: "bashrc"
+        dest: "/home/{{ terminal_user }}/.bashrc"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+
+    - name: "Deploy the bash line-editor stack (ble.sh + atuin)"
+      ansible.builtin.copy:
+        src: "bashrc.d/{{ item }}"
+        dest: "/home/{{ terminal_user }}/.bashrc.d/{{ item }}"
+        owner: "{{ terminal_user }}"
+        group: "{{ terminal_user }}"
+        mode: "u=rw,g=r,o=r"
+      loop:
+        - "0_ble.sh"
+        - "zz_atuin.sh"
+        - "zzz_ble_attach.sh"
 
     - name: "Deploy foot.ini"
       ansible.builtin.copy:

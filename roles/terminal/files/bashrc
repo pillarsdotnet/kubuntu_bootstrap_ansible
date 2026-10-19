@@ -1,0 +1,14 @@
+[[ $- =~ i ]] || return
+
+# Session-scoped setup (exports, one-shot actions). foot sources these before
+# launching zellij (see foot.ini shell=), so every pane inherits them; only
+# source them here for shells outside zellij (konsole, ssh, VS Code).
+if [[ -z $ZELLIJ ]]; then
+    for sh in ~/.zellij.d/*.sh; do
+        . $sh
+    done
+fi
+
+for sh in ~/.bashrc.d/*.sh; do
+    . $sh
+done

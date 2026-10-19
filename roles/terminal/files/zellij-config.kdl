@@ -657,3 +657,4 @@ pane_frames false              // no borders, full 83 columns for emacs (like tm
 simplified_ui true             // Hack has no powerline glyphs
 scroll_buffer_size 1000000     // tmux: history-limit 1000000
 visual_bell false              // tmux: bell-action none
+show_startup_tips false        // no tip box over the session on attach
