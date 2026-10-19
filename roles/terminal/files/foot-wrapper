@@ -1,29 +1,48 @@
 #!/bin/bash
-# Single-instance foot: if a real foot window is already open, focus it via a
-# KWin script; otherwise launch /usr/bin/foot. Installed as ~/.local/bin/foot
-# so it shadows the real binary in PATH; the desktop entry points here too.
-# This wrapper's own process is also named "foot", so identify the real
-# terminal by its executable path rather than by name.
+# Single-instance foot: if a foot/footclient window is already open, focus it
+# via a KWin script; otherwise open a new window through the foot server
+# (footclient -> foot-server.socket, socket-activated). Installed as
+# ~/.local/bin/foot so it shadows the real binary in PATH; the desktop entry
+# points here too.
+#
+# The server process is also exe=/usr/bin/foot, so an open window is detected
+# by its footclient process (which waits while the window lives), not by the
+# server. The legacy check for a non-server /usr/bin/foot window is kept for
+# windows launched directly.
 
-for pid in $(pgrep -x foot); do
-    if [ "$(readlink -f "/proc/$pid/exe" 2>/dev/null)" = "/usr/bin/foot" ]; then
-        js=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/focus-foot-XXXXXX.js")
-        cat > "$js" <<'EOF'
+has_window=0
+if pgrep -x footclient >/dev/null; then
+    has_window=1
+else
+    for pid in $(pgrep -x foot); do
+        [ "$(readlink -f "/proc/$pid/exe" 2>/dev/null)" = "/usr/bin/foot" ] || continue
+        grep -qz -- --server "/proc/$pid/cmdline" 2>/dev/null && continue
+        has_window=1
+        break
+    done
+fi
+
+if [ "$has_window" = 1 ]; then
+    js=$(mktemp "${XDG_RUNTIME_DIR:-/tmp}/focus-foot-XXXXXX.js")
+    cat > "$js" <<'EOF'
 for (const w of workspace.windowList()) {
-    if (w.resourceClass === "foot") {
+    if (w.resourceClass === "foot" || w.resourceClass === "footclient") {
         workspace.activeWindow = w;
         print("focus-foot: activated foot window");
         break;
     }
 }
 EOF
-        name="focus-foot-$$"
-        qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" "$name" >/dev/null
-        qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start
-        qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$name" >/dev/null
-        rm -f "$js"
-        exit 0
-    fi
-done
+    name="focus-foot-$$"
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" "$name" >/dev/null
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.start
+    qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$name" >/dev/null
+    rm -f "$js"
+    exit 0
+fi
 
+# New window via the server when its socket is up; fall back to plain foot.
+if [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/foot.sock" ]; then
+    exec /usr/bin/footclient "$@"
+fi
 exec /usr/bin/foot "$@"

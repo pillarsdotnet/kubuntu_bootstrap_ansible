@@ -6,9 +6,17 @@
 #    columns beside its 3-column line-number gutter - the same grid fullscreen
 #    Konsole yields at 24pt; foot renders a given point size smaller) and
 #    attaches to the persistent zellij session "main".
-#  - A wrapper at ~/.local/bin/foot shadows /usr/bin/foot and focuses the
-#    already-running foot window via a KWin script instead of opening a second
-#    one; a desktop-entry override routes menu launches through it too.
+#  - foot runs in server mode (since 2026-10-16): the foot package globally
+#    enables foot-server.socket/.service in
+#    /etc/systemd/user/graphical-session.target.wants/, so every graphical
+#    login socket-activates "foot --server" and new windows come from
+#    footclient. Nothing to enable here - installing foot is enough.
+#  - A wrapper at ~/.local/bin/foot shadows /usr/bin/foot: it focuses an
+#    already-open foot window via a KWin script, otherwise opens a new window
+#    with footclient (falling back to plain foot if the server socket is
+#    absent); a desktop-entry override routes menu launches through it too.
+#    Open windows are detected by their footclient processes, since the
+#    always-running server is itself named "foot".
 #  - zellij carries the ~/.tmux.conf bindings (prefix Ctrl-z) and options.
 #  - qtchooser points its tool shims (qdbus among them) at Qt6: the qt4/qt5
 #    configs Ubuntu ships dangle, and /usr/lib/qt6/bin/qdbus is the only real
@@ -43,9 +51,11 @@
           [main]
           font=Hack:size=29
           initial-window-mode=fullscreen
-          # Attach to the persistent zellij session "main", creating it if needed,
-          # so a new foot window resumes where the last one left off.
-          shell=/usr/bin/zellij attach --create main
+          # Source the session-scoped setup in ~/.zellij.d (exports, gpg unlock, nvm
+          # PATH) once, so every pane inherits it without re-running it, then attach to
+          # the persistent zellij session "main", creating it if needed, so a new foot
+          # window resumes where the last one left off.
+          shell=/bin/bash -c "for f in ~/.zellij.d/*.sh; do . $f; done; exec /usr/bin/zellij attach --create main"
         dest: "/home/{{ terminal_user }}/.config/foot/foot.ini"
         owner: "{{ terminal_user }}"
         group: "{{ terminal_user }}"
