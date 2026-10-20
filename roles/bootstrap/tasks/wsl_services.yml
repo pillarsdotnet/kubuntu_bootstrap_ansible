@@ -1,0 +1,51 @@
+---
+- name: "Disable services delegated to Windows on systemd WSL hosts"
+  when:
+    - bootstrap_wsl_version | int > 0
+    - ansible_facts.service_mgr == "systemd"
+  tags:
+    - "requires_systemd"
+    - "wsl_services"
+  block:
+    - name: "Discover installed systemd units, including activation sockets and paths"
+      ansible.builtin.command:
+        argv:
+          - "systemctl"
+          - "list-unit-files"
+          - "--no-legend"
+          - "--no-pager"
+      register: "bootstrap_wsl_unit_files"
+      changed_when: false
+      check_mode: false
+
+    # list-unit-files lists getty@.service, not its running tty1 instance.
+    - name: "Discover running service instances"
+      ansible.builtin.service_facts:
+
+    - name: "Select installed units covered by the WSL policy"
+      ansible.builtin.set_fact:
+        bootstrap_wsl_units_to_disable: >-
+          {{ bootstrap_wsl_disabled_units
+             | select('in',
+                 (bootstrap_wsl_unit_files.stdout_lines
+                  | map('split') | map('first') | list)
+                 + (ansible_facts.services | dict2items
+                    | selectattr('value.state', 'equalto', 'running')
+                    | map(attribute='key') | list))
+             | list }}
+
+    # Disable before masking: is-enabled reports "masked" afterward, hiding
+    # any boot-time enablement links that still need to be removed.
+    - name: "Stop and disable unwanted WSL units"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: "stopped"
+        enabled: false
+      loop: "{{ bootstrap_wsl_units_to_disable }}"
+
+    - name: "Persistently mask unwanted WSL units and stop any reactivation"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: "stopped"
+        masked: true
+      loop: "{{ bootstrap_wsl_units_to_disable }}"

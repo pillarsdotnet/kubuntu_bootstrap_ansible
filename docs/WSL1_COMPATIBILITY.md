@@ -2,6 +2,9 @@
 
 This document describes how the Ansible bootstrap playbook handles incompatibilities with Windows Subsystem for Linux (WSL-1) and virtualized environments (VDI).
 
+For the WSL client service policy, including the running-service inventory and
+disable/mask defaults for systemd-enabled WSL, see [WSL services](WSL_SERVICES.md).
+
 ## Overview
 
 WSL-1 is a compatibility layer that runs Ubuntu user-space utilities on the Windows kernel. It has significant limitations compared to full Linux:
@@ -107,9 +110,10 @@ and the "different" callouts under "Incompatible Tasks by Category".
 ### 4. Where the gates actually are
 
 Most of these `when` gates live in `roles/bootstrap`, because role defaults
-are only in scope for that role's own tasks and handlers. The tagged tasks in
-`roles/printing` and `roles/sources` are tagged but **not** gated, so on
-WSL-1 they still need the tag-skip flags:
+are only in scope for that role's own tasks and handlers. `roles/printing`
+skips both WSL generations entirely: Windows handles printing. The tagged
+tasks in `roles/sources` are **not** gated, so on WSL-1 they still need the
+tag-skip flags:
 
 ```bash
 ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd

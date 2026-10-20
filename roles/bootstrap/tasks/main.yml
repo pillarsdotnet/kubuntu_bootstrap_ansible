@@ -45,10 +45,14 @@
   ansible.builtin.include_tasks: "deprecate_run_utmp.yml"
 - name: "Enforce BlueZ audio auto-reconnect policy"
   ansible.builtin.include_tasks: "bluetooth.yml"
-  when: ansible_facts.services["bluetooth.service"] is defined
+  when:
+    - ansible_facts.services["bluetooth.service"] is defined
+    - bootstrap_wsl_version | int == 0
 - name: "Disable Wi-Fi power-save"
   ansible.builtin.include_tasks: "wifi_powersave.yml"
-  when: ansible_facts.services["NetworkManager.service"] is defined
+  when:
+    - ansible_facts.services["NetworkManager.service"] is defined
+    - bootstrap_wsl_version | int == 0
 # Ask which loader booted the host this time, not which is installed: bobse16
 # has systemd-boot on its ESP but boots GRUB, and GRUB 2.14 sets the same
 # LoaderInfo EFI variable systemd-boot does, so neither of those can tell.
@@ -86,3 +90,5 @@
     owner: "root"
     path: "/etc/ansible/facts.d"
     state: "directory"
+- name: "Apply the WSL service policy"
+  ansible.builtin.import_tasks: "wsl_services.yml"
