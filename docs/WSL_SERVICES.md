@@ -27,9 +27,9 @@ The inspected instance reports **Ubuntu 26.04.1 LTS**, kernel
 running. This is an inventory of systemd services, not arbitrary processes or
 services inside containers or other users' sessions.
 
-After applying the policy, 14 system services and the same 8 user services
-remain running. Seventeen previously running system services were stopped;
-36 installed service/socket/path units are disabled and persistently masked.
+After applying the policy, 12 system services and the same 8 user services
+remain running. Nineteen previously running system services were stopped;
+40 installed service/socket/path/timer units are disabled and persistently masked.
 
 ### System services
 
@@ -44,7 +44,7 @@ remain running. Seventeen previously running system services were stopped;
 | `cups.service` | Disable and mask | Printing belongs on Windows. |
 | `dbus.service` | Keep | System IPC and service activation. |
 | `docker.service` | Disable and mask | No Linux Docker server in this client profile. |
-| `fail2ban.service` | Keep | Retain protection for Linux services such as SSH; not inherently WSL-incompatible. |
+| `fail2ban.service` | Disable and mask | No Linux-side fail2ban server in this WSL client profile; this unit runs `fail2ban-server`. |
 | `getty@tty1.service` | Disable and mask | WSL terminals do not need a virtual-console login prompt. |
 | `mariadb.service` | Disable and mask | No local database server in this client profile. |
 | `named.service` | Disable and mask | Use WSL/Windows DNS, not a local BIND server. |
@@ -60,7 +60,7 @@ remain running. Seventeen previously running system services were stopped;
 | `systemd-resolved.service` | Keep | Preserve Linux resolver clients and integration with WSL DNS. |
 | `systemd-udevd.service` | Keep | Device events, including WSL virtual devices and potential passthrough. |
 | `udisks2.service` | Disable and mask | No Linux desktop disk automounting in this profile. |
-| `unattended-upgrades.service` | Keep | Preserve security update handling. |
+| `unattended-upgrades.service` | Disable and mask | Updates are managed explicitly in this WSL client profile. |
 | `user@1000.service` | Keep | User service manager. |
 | `uuidd.service` | Keep | Socket-activated UUID allocation for Linux clients. |
 | `virtlockd.service` | Disable and mask | No libvirt VM host in this client profile. |
@@ -72,6 +72,11 @@ when their main service was not running during inventory. Nested virtualization
 can work in WSL (`/dev/kvm` exists here); disabling libvirt is a client-profile
 choice, not a claim that WSL cannot run VMs. The same distinction applies to
 Docker, databases, web servers and BIND.
+
+`apt-daily-upgrade.timer` and `apt-daily-upgrade.service` are also disabled
+and masked: `unattended-upgrades.service` is only the shutdown helper, not
+the scheduled upgrade launcher. Package-list refreshes remain enabled; install
+security updates manually or through the runbook.
 
 ### Current user's services
 
