@@ -57,6 +57,7 @@ sources_ubuntu_releases:
 #   sources_repos: {common: {ubuntu: {suites: "resolute resolute-security ..."}}}
 # (ansible.cfg sets hash_behaviour = merge, so a single nested key is enough.)
 vdi_skip_repos:
+  - "forgejo"        # mirrors the pillarsdotnet PPA, skipped below for the same reason
   - "github-desktop"
   - "libreoffice-frexh"
   - "linux-wifi-hotspot"
@@ -240,6 +241,20 @@ sources_repos:
       signed_by: "/gpg"
       suites: "resolute"
       uris: ""
+    # The self-hosted Forgejo registry on homelab, mirroring the published
+    # debs of the pillarsdotnet PPA (same content, same versions, so apt may
+    # take a package from either and no pin is needed). Like the PPA it
+    # publishes a distribution per release, so follow the host. The signing
+    # key is fetched from the registry itself when the template renders, so
+    # the CONTROLLER must be able to reach forgejo.bobbalisa.org: from the
+    # home LAN that needs the local-DNS override pointing it at homelab,
+    # because the router does not hairpin its own public address.
+    forgejo:
+      comment: "Bob's Forgejo registry on homelab: mirror of the pillarsdotnet PPA"
+      server: "https://forgejo.bobbalisa.org"
+      signed_by: "/api/packages/pillarsdotnet/debian/repository.key"
+      suites: "{{ sources_ubuntu_release }}"
+      uris: "/api/packages/pillarsdotnet/debian"
     gcloud:
       comment: "Google cloud tools"
       server: "https://packages.cloud.google.com/apt"
