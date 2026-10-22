@@ -170,6 +170,13 @@ sources_auth_required_repos:
 # instead and nothing need be skipped.
 sources_auth_required_packages:
   griffo: "{{ ['uv'] if sources_ubuntu_release == 'resolute' else [] }}"
+# Files written to /etc/apt/apt.conf.d/, keyed by filename (keep a .conf
+# suffix: apt silently ignores most other extensions). Empty by default; a
+# host adds entries from host_vars (ansible.cfg's hash_behaviour = merge).
+# homelab uses this for a DPkg::Post-Invoke hook that restores the ownership
+# of the live Forgejo instance's directories, which the griffo forgejo
+# package's postinst resets to git:git on every configure.
+sources_apt_conf: {}
 # Files written to /etc/apt/preferences.d/, keyed by filename.
 sources_preferences:
   kubernetes: |

@@ -175,6 +175,16 @@
       };
     dest: "/etc/apt/apt.conf.d/99move-list-files.conf"
     mode: "u=rwx,g=r,o=r"
+# Before the first update_cache below, so a host's DPkg::Post-Invoke hooks
+# (sources_apt_conf) already apply to the packages this very run upgrades.
+- name: "Write extra apt configuration to /etc/apt/apt.conf.d/ folder"
+  ansible.builtin.copy:
+    content: "{{ item.value }}"
+    dest: "/etc/apt/apt.conf.d/{{ item.key }}"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  loop: "{{ sources_apt_conf | dict2items }}"
 - name: "Register 1password sources divert"
   ansible.builtin.command: >-
     dpkg-divert --local
