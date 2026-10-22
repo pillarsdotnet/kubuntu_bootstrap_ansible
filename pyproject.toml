@@ -1,0 +1,30 @@
+# This repository is an Ansible project, not a Python package: there is no
+# [project] table and nothing here is built or installed. This file exists
+# only to configure the Python lint tooling (ruff, mypy) that checks the
+# filter plugins and helper scripts.
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# Enable the entire Ruff rule set; suppress only mutually-incompatible rules.
+select = ["ALL"]
+ignore = [
+    "D203",  # conflicts with D211 — keep D211 (no blank line before class docstring)
+    "D213",  # conflicts with D212 — keep D212 (summary on first line)
+]
+
+[tool.mypy]
+# Pin the target so mypy checks the language level we actually support
+# instead of whatever interpreter happens to run the hook.
+python_version = "3.12"
+files = ["filter_plugins", "scripts"]
+ignore_missing_imports = false
+warn_unused_ignores = true
+
+# Ansible ships no type information, so don't fail on its missing stubs if a
+# filter plugin ever imports it (the plugins are loaded by Ansible at run
+# time).
+[[tool.mypy.overrides]]
+module = ["ansible", "ansible.*"]
+ignore_missing_imports = true

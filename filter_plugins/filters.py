@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
 """Add some useful filters for ansible."""
 
 from __future__ import annotations
@@ -6,6 +7,8 @@ import base64
 import ipaddress
 import json
 from shutil import which
+
+# The gpg re-armoring pipeline below is a deliberate subprocess use.
 from subprocess import PIPE, run
 from typing import TYPE_CHECKING
 from urllib.request import urlopen
@@ -35,15 +38,18 @@ class FilterModule:
 
 
         """
-        # Fetch the contents of the `url` as a string.
-        with urlopen(url) as response:
+        # Fetch the contents of the `url` as a string. The URL comes from the
+        # playbook's own vars, always an https:// key location, not user input.
+        with urlopen(url) as response:  # noqa: S310
             key = response.read()
         # Pass it through `gpg --dearmor` in case it is already armored,
         # then through `gpg --armor` to re-armor it.
         gpg = which("gpg")
         # Use sed to convert the output for use with a .sources file.
         sed = which("sed")
-        return "Signed-By:\n" + run(
+        # shell=True is deliberate: the command is a fixed three-stage pipeline
+        # built from which() results, with no untrusted text interpolated.
+        return "Signed-By:\n" + run(  # noqa: S602
             f"{gpg} --dearmor | {gpg} --enarmor | {sed} -e '"
             "/^Comment:/d;/^Version/d;"
             "s/ARMORED FILE/PUBLIC KEY BLOCK/;s/^$/./;s/^/ /'",
@@ -84,9 +90,10 @@ class FilterModule:
             release.
 
         """
-        # Construct the releases url from the `project` string.
+        # Construct the releases url from the `project` string. The scheme is
+        # fixed https and the project slug comes from the playbook's own vars.
         url = f"https://api.github.com/repos/{project}/releases/latest"
-        with urlopen(url) as response:
+        with urlopen(url) as response:  # noqa: S310
             data = json.loads(response.read().decode("utf-8"))
         return data["tag_name"]
 
@@ -112,8 +119,8 @@ class FilterModule:
                     "relay": ipv4,
                     "key": pubkey,
                     "api": f"https://{ipv4}",
-                }, separators=(",", ":")
-            ).encode("utf-8")
+                }, separators=(",", ":"),
+            ).encode("utf-8"),
         ).decode("ascii").replace("=", "")[::-1]
 
     @staticmethod
@@ -154,7 +161,13 @@ class FilterModule:
         return [f"{prefix}r{suffix}", f"{prefix}s{suffix}"]
 
     def filters(self) -> dict[str, Callable]:
-        """Return a hash of filter names and implementing functions."""
+        """Return a hash of filter names and implementing functions.
+
+        Returns:
+            A mapping from each filter's Jinja name to the static method
+            that implements it.
+
+        """
         return {
             "global_addresses": self.global_addresses,
             "latest_github_release": self.latest_github_release,

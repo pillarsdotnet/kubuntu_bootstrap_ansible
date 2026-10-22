@@ -1,0 +1,4 @@
+# markdownlint configuration — https://github.com/DavidAnson/markdownlint
+default: true
+# Prose, tables and example output legitimately exceed a fixed column width.
+MD013: false

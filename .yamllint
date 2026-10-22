@@ -1,0 +1,13 @@
+# yamllint checks correctness and consistency; prettier owns formatting where
+# it runs, so only the rules the two disagree on are adjusted. document-start
+# is disabled because workflow files open with a comment block rather than
+# "---", truthy's key check because workflow files key on "on:", and the
+# length limit is 160 because the roles' comment-heavy YAML runs long and
+# ansible-lint's own yaml profile uses 160.
+extends: default
+rules:
+  document-start: disable
+  line-length:
+    max: 160
+  truthy:
+    check-keys: false

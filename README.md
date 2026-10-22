@@ -1,20 +1,21 @@
-# kubuntu_bootstrap_ansible
+# `kubuntu_bootstrap_ansible`
 
-Ansible playbooks to bootstrap and configure Kubuntu nodes, including
-Tailscale networking and a Kubernetes cluster with Calico.
+`Ansible` playbooks to bootstrap and configure `Kubuntu` nodes, including
+`Tailscale` networking and a `Kubernetes` cluster with `Calico`.
 
 ## Repository layout
 
 Some files are intentionally excluded from git and must be created locally
-on the machine you run Ansible from. This keeps secrets off the remote
+on the machine you run `Ansible` from. This keeps secrets off the remote
 server and out of version control.
 
-| Path | In git? | Purpose |
-|------|---------|---------|
-| `group_vars/all/vars.yml` | No | Group-wide variables (hosts, ports, etc.) |
-| `group_vars/all/vault.yml` | No | Encrypted secrets (Ansible Vault) |
-| `host_vars/<hostname>.yml` | No | Per-host variables |
-| `inventory.yml` | No | List of hosts to configure |
+| Path                       | In git? | Purpose                                   |
+| -------------------------- | ------- | ----------------------------------------- |
+| `group_vars/all/vars.yml`  | No      | Group-wide variables (hosts, ports, etc.) |
+| `group_vars/all/vault.yml` | No      | Encrypted secrets (`Ansible Vault`)       |
+| `host_vars/<hostname>.yml` | No      | Per-host variables                        |
+| `inventory.yml`            | No      | List of hosts to configure                |
+
 ---
 
 ## Inventory
@@ -25,7 +26,7 @@ your cluster topology.
 
 ### Group structure
 
-```
+```text
 kubernetes
 ├── cp       ← runs control_plane.yml (kubeadm init, Calico, VIP)
 └── worker   ← runs worker.yml (kubeadm join)
@@ -85,20 +86,20 @@ all:
             worker-2:
 ```
 
-Connection details (Ansible SSH user, port, etc.) go in
+Connection details (`Ansible` SSH user, port, etc.) go in
 `host_vars/<hostname>.yml`, which is excluded from git.
 
 ---
 
-## Secrets: Ansible Vault
+## Secrets: `Ansible Vault`
 
 Sensitive values — currently `tailscale_api_key` and `sources_apt_auth` —
-live in `group_vars/all/vault.yml`, which is an Ansible Vault-encrypted file.
+live in `group_vars/all/vault.yml`, which is encrypted with `Ansible Vault`.
 The directory is excluded from git via `group_vars/.gitignore` so it never
 leaves your local machine.
 
 The file sits under `group_vars/all/`, not at `group_vars/vault.yml`:
-Ansible only loads `group_vars` entries whose name matches a group, and no
+`Ansible` only loads `group_vars` entries whose name matches a group, and no
 group is called "vault", so a top-level `vault.yml` is silently ignored.
 Everything in a `group_vars/all/` directory loads for every host.
 
@@ -115,7 +116,7 @@ chmod 600 ~/.ansible/vault_pass
 The project's `ansible.cfg` already points `vault_password_file` at
 `~/.ansible/vault_pass`, so no flag is needed once that file exists.
 
-### 2. Get a Tailscale API key
+### 2. Get a `Tailscale` API key
 
 1. Sign in at <https://login.tailscale.com/admin/settings/keys>
 2. Under **API keys**, click **Generate API key**
@@ -123,9 +124,9 @@ The project's `ansible.cfg` already points `vault_password_file` at
    expiry
 4. Copy the key — it starts with `tskey-api-`
 
-> The API key is used by the `kubernetes` role to approve the Kubernetes
+> The API key is used by the `kubernetes` role to approve the `Kubernetes`
 > VIP (`10.254.0.1/32`) as an enabled subnet route on each control plane
-> node, enabling Tailscale HA failover between them.
+> node, enabling `Tailscale` HA failover between them.
 
 ### 3. Get deb.griffo.io credentials
 
@@ -135,12 +136,12 @@ packages (`apt update` and browsing stay free). After subscribing at
 password arrive by email. They go in `sources_apt_auth` below, which the
 sources role writes to `/etc/apt/auth.conf.d/griffo.conf` on every host.
 
-If the vault has no `griffo` entry, the sources role skips the repo rather
+If the vault has no `griffo` entry, the sources role skips the repository rather
 than installing one that would 401 on every download: no
 `griffo.sources` file is written, and one left behind by an earlier
 credentialed run is removed by the unmanaged-sources cleanup. On a
 `resolute` host, whose archive carries no `uv` at all, the `uv` package is
-skipped along with the repo; on `stonking` the archive's own (older) `uv`
+skipped along with the repository; on `stonking` the archive's own (older) `uv`
 installs instead.
 
 ### 4. Create the vault file
@@ -219,19 +220,19 @@ repositories and packages to exclude high-risk or unnecessary sources.
   physically-controlled workstations. Set via `ansible-playbook setup.yml`
 
 - **`vdi`**: Filter out repositories that ship alpha or beta builds, or code no
-  distribution has reviewed — Launchpad PPAs, snapshot/nightly/staging suites, and
-  third-party rebuilds of someone else's software. Vendor repos for the vendor's own
-  software (Docker, Google, HashiCorp, Tailscale, 1Password, Mozilla, …) are kept:
+  distribution has reviewed — `Launchpad` `PPA` sources, snapshot/nightly/staging suites, and
+  third-party rebuilds of software maintained by someone else. Vendor repositories for the vendor's own
+  software (`Docker`, `Google`, `HashiCorp`, `Tailscale`, `1Password`, `Mozilla`, …) are kept:
   their provenance is accountable. This profile is customizable — see "Customizing
-  filtered repos and packages" below.
+  filtered repositories and packages" below.
 
 The profile is a **trust** setting, not a capability one. Kernel-capability skipping
 for WSL is detected automatically and needs no profile — see
 `docs/WSL1_COMPATIBILITY.md`.
 
-On WSL with systemd, bootstrap also stops, disables and masks services outside
-the default client profile, including BIND, MariaDB, nginx, Docker/containerd,
-libvirt, Linux printing and hardware-management daemons. Setup reapplies this
+On WSL with `systemd`, bootstrap also stops, disables and masks services outside
+the default client profile, including `BIND`, `MariaDB`, `nginx`, `Docker`/`containerd`,
+`libvirt`, Linux printing and hardware-management daemons. Setup reapplies this
 policy after package installation. See [WSL services](docs/WSL_SERVICES.md) for
 the inventory, rationale and `bootstrap_wsl_disabled_units` override.
 
@@ -250,28 +251,28 @@ ansible-playbook setup.yml \
   -e "skip_packages=[steam,waydroid]"
 ```
 
-### Customizing filtered repos and packages
+### Customizing filtered repositories and packages
 
 The lists live in `roles/sources/defaults/main.yml`, which **is** tracked in git:
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `environment_profile` | `"standard"` | Which profile to apply |
-| `vdi_skip_repos` | 17 repos | Dropped under the `vdi` profile |
-| `vdi_skip_packages` | 3 packages | Dropped under the `vdi` profile |
-| `skip_repos` | `[]` | Extra repos to drop on this host, any profile |
-| `skip_packages` | `[]` | Extra packages to drop on this host, any profile |
+| Variable              | Default         | Purpose                                              |
+| --------------------- | --------------- | ---------------------------------------------------- |
+| `environment_profile` | `"standard"`    | Which profile to apply                               |
+| `vdi_skip_repos`      | 17 repositories | Dropped under the `vdi` profile                      |
+| `vdi_skip_packages`   | 3 packages      | Dropped under the `vdi` profile                      |
+| `skip_repos`          | `[]`            | Extra repositories to drop on this host, any profile |
+| `skip_packages`       | `[]`            | Extra packages to drop on this host, any profile     |
 
 `skip_repos`/`skip_packages` are **added to** whatever the profile contributes, so
 `-e "environment_profile=vdi" -e "skip_repos=[steam]"` applies both. Set them per host
 in `host_vars/<hostname>.yml`, or edit the `vdi_*` lists to change the fleet-wide
-policy. (They deliberately do *not* live in `group_vars/all.yml`: that file is
+policy. (They deliberately do _not_ live in `group_vars/all.yml`: that file is
 untracked, so anything defined only there is undefined on every other clone — which is
 what produced `'environment_profile' is undefined`.)
 
-Only packages that exist *nowhere but* a skipped repo belong in `vdi_skip_packages`.
-LibreOffice, PipeWire, TLP and OBS are in the Ubuntu archive too, so dropping their
-PPA just pins them back to the distribution build rather than removing the software.
+Only packages that exist _nowhere but_ a skipped repository belong in `vdi_skip_packages`.
+`LibreOffice`, `PipeWire`, `TLP` and `OBS` are in the Ubuntu archive too, so dropping their
+`PPA` just pins them back to the distribution build rather than removing the software.
 
 After updating the filter lists, re-run the playbook to regenerate the sources:
 
@@ -281,15 +282,16 @@ ansible-playbook sources.yml -e "environment_profile=vdi"
 ```
 
 This will:
-1. Remove any previously-installed repos that are now in the skip list
+
+1. Remove any previously-installed repositories that are now in the skip list
 2. Uninstall any packages that are now in the skip list (if `autoremove: true`)
 3. Write the filtered set of `.sources` files to `/etc/apt/sources.list.d/`
 
 ### WSL-1 and VDI Environment Compatibility
 
 When using this playbook on WSL-1 (Windows Subsystem for Linux), tasks in the
-`bootstrap` role that require unavailable kernel features (iptables/netfilter,
-systemd) are skipped automatically — WSL-1 is detected from the kernel release, so
+`bootstrap` role that require unavailable kernel features (`iptables`/`netfilter`,
+`systemd`) are skipped automatically — WSL-1 is detected from the kernel release, so
 there is no flag to remember. `NetworkManager` reloads are skipped on WSL-1 **and**
 WSL-2, since Windows owns the network on both.
 
@@ -328,10 +330,11 @@ These can be evaluated and conditionally added to VDI profiles based on risk pos
 
 ## Running on WSL1 (Windows Subsystem for Linux v1)
 
-WSL1 lacks systemd and netfilter kernel support, which blocks several playbook tasks:
-- UFW firewall rules require netfilter/iptables kernel modules
-- Service management (systemd_service) cannot start/restart services
-- systemd packages cannot complete post-installation configuration
+WSL1 lacks `systemd` and `netfilter` kernel support, which blocks several playbook tasks:
+
+- UFW firewall rules require `netfilter`/`iptables` kernel modules
+- Service management (`systemd_service`) cannot start/restart services
+- `systemd` packages cannot complete post-installation configuration
 
 To run the playbook on WSL1, skip these operations:
 
@@ -340,27 +343,28 @@ ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 ```
 
 This will complete successfully with the following limitations:
-- Firewall rules will not be configured
-- Services will not be automatically started (tailscale, CUPS, NetworkManager, etc.)
-- systemd-dependent packages will be partially installed but not configured
 
-For full functionality, upgrade to WSL2 (which includes Hyper-V nested virtualization
-and systemd support). See the [WSL2 installation guide](https://learn.microsoft.com/en-us/windows/wsl/install).
+- Firewall rules will not be configured
+- Services will not be automatically started (`tailscale`, `CUPS`, `NetworkManager`, etc.)
+- `systemd`-dependent packages will be partially installed but not configured
+
+For full functionality, upgrade to WSL2 (which includes `Hyper-V` nested virtualization
+and `systemd` support). See the [WSL2 installation guide](https://learn.microsoft.com/en-us/windows/wsl/install).
 
 ---
 
 ## Linting
 
-Ansible itself comes from the system package, but the linter is pinned in
+`Ansible` itself comes from the system package, but the linter is pinned in
 `requirements.txt` so it is reproducible. Set up (or refresh) a local tooling
-venv with [uv](https://docs.astral.sh/uv/):
+`venv` with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
 uv venv
 uv pip install -r requirements.txt
 ```
 
-Then run the linter over the whole repo:
+Then run the linter over the whole repository:
 
 ```bash
 .venv/bin/ansible-lint
@@ -370,20 +374,20 @@ New code should lint clean against the `production` profile before committing.
 
 ---
 
-## Kubernetes VIP and Tailscale subnet routing
+## `Kubernetes` VIP and `Tailscale` subnet routing
 
 After the `kubernetes` role runs, each control plane node will have:
 
 - `10.254.0.1/32` bound to a `dummy-k8svip` interface (persistent via
   `systemd-networkd`)
-- The route advertised to Tailscale via `tailscale set --advertise-routes`
-- The route approved in the Tailscale admin console via the API
+- The route advertised to `Tailscale` via `tailscale set --advertise-routes`
+- The route approved in the `Tailscale` admin console via the API
 
 When you add further control plane nodes (`cp-1`, `cp-2`, …), re-running
 the playbook will advertise and approve the VIP route on those nodes too.
-Tailscale will automatically fail over between advertisers if a node goes
+`Tailscale` will automatically fail over between advertisers if a node goes
 down.
 
-> **Note:** Tailscale subnet route HA failover requires the route to be
+> **Note:** `Tailscale` subnet route HA failover requires the route to be
 > approved on **each** advertising node individually in the admin console.
 > The role does this automatically when `tailscale_api_key` is set.

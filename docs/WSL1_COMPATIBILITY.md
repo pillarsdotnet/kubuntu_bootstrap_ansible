@@ -1,32 +1,32 @@
 # WSL-1 and VDI Environment Compatibility
 
-This document describes how the Ansible bootstrap playbook handles incompatibilities with Windows Subsystem for Linux (WSL-1) and virtualized environments (VDI).
+This document describes how the `Ansible` bootstrap playbook handles incompatibilities with Windows Subsystem for Linux (WSL-1) and virtualized environments (VDI).
 
 For the WSL client service policy, including the running-service inventory and
-disable/mask defaults for systemd-enabled WSL, see [WSL services](WSL_SERVICES.md).
+disable/mask defaults for `systemd`-enabled WSL, see [WSL services](WSL_SERVICES.md).
 
 ## Overview
 
 WSL-1 is a compatibility layer that runs Ubuntu user-space utilities on the Windows kernel. It has significant limitations compared to full Linux:
 
-- **No iptables/netfilter support** — kernel firewall features unavailable
-- **Limited systemd support** — service management differs from full Linux
-- **No seccomp/AppArmor** — security frameworks not available
+- **No `iptables`/`netfilter` support** — kernel firewall features unavailable
+- **Limited `systemd` support** — service management differs from full Linux
+- **No `seccomp`/`AppArmor`** — security frameworks not available
 - **No device passthrough** — hardware access limited
 
-When deploying to WSL-1 or VDI environments, certain Ansible tasks will fail because they require Linux kernel features that are unavailable. Rather than silently ignoring errors, this playbook uses a declarative tag-based skipping mechanism.
+When deploying to WSL-1 or VDI environments, certain `Ansible` tasks will fail because they require Linux kernel features that are unavailable. Rather than silently ignoring errors, this playbook uses a declarative tag-based skipping mechanism.
 
 ## How It Works
 
 Two independent things are being decided, and they are kept separate:
 
-| Axis | Question | Driven by |
-|---|---|---|
-| **Capability** | Does this kernel *support* the operation? | Automatic WSL detection (`bootstrap_wsl_version`) |
-| **Trust** | Do we *want* this software here? | `environment_profile` (`standard` / `vdi`) |
+| Axis           | Question                                  | Driven by                                         |
+| -------------- | ----------------------------------------- | ------------------------------------------------- |
+| **Capability** | Does this kernel _support_ the operation? | Automatic WSL detection (`bootstrap_wsl_version`) |
+| **Trust**      | Do we _want_ this software here?          | `environment_profile` (`standard` / `vdi`)        |
 
-A WSL-1 host cannot run systemd no matter what profile you pass, and a VDI that
-runs Linux natively is fully capable but may still want third-party repos left
+A WSL-1 host cannot run `systemd` no matter what profile you pass, and a VDI that
+runs Linux natively is fully capable but may still want third-party repositories left
 out. Conflating the two meant WSL-1 skips only happened if you remembered to
 pass `-e environment_profile=vdi`, and passing that on a native VDI wrongly
 disabled service management.
@@ -60,11 +60,11 @@ wsl1_incompatible_tags:
   - "requires_systemd"
 ```
 
-- `requires_dbus` — needs a running dbus system bus
+- `requires_dbus` — needs a running `dbus` system bus
 - `requires_gui` — needs a graphical session
-- `requires_netfilter` — needs the iptables/netfilter subsystem (firewall rules,
+- `requires_netfilter` — needs the `iptables`/`netfilter` subsystem (firewall rules,
   NAT, packet filtering, container networking)
-- `requires_systemd` — needs systemd for service management
+- `requires_systemd` — needs `systemd` for service management
 
 These are declared in **role defaults**, not `group_vars/all.yml`. That file is
 untracked (see README "Repository layout"), so declaring them there left a fresh
@@ -73,11 +73,11 @@ clone with nothing defining them, and every gated task died with
 
 `requires_gui` is part of the policy but no task carries it yet: GUI work is
 gated on `bootstrap_gui`, which is false unless `display-manager.service` is
-currently running — and a host with no systemd has no such service, so WSL-1
-reads as headless on its own. dbus-dependent work in `bluetooth.yml` and
+currently running — and a host with no `systemd` has no such service, so WSL-1
+reads as headless on its own. `dbus`-dependent work in `bluetooth.yml` and
 `wifi_powersave.yml` is likewise already gated on the service existing in
 `ansible_facts.services`; `requires_dbus` is carried today only by
-`wsl_keyring.yml` (see "Login Keyring / libsecret" below), which gates on WSL
+`wsl_keyring.yml` (see "Login Keyring / `libsecret`" below), which gates on WSL
 detection rather than on the tag list. Tag new tasks with these rather than
 inventing a parallel mechanism.
 
@@ -99,9 +99,10 @@ A tagged task is skipped when a WSL-1 kernel is detected **and** its tag is in
 ```
 
 This means:
+
 - On native Linux, including a natively-run VDI: task runs
 - On WSL-1: task is skipped automatically, no flags required
-- On WSL-2: task runs (real kernel; enable systemd in `/etc/wsl.conf` if needed)
+- On WSL-2: task runs (real kernel; enable `systemd` in `/etc/wsl.conf` if needed)
 
 A few individual tasks skip on **both** WSL generations instead, bypassing
 this tag-list mechanism entirely — see "Where the gates actually are" below
@@ -123,7 +124,7 @@ ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 role default to a real host fact by a `set_fact` in
 `roles/bootstrap/tasks/main.yml`, which lets it survive into the later
 "Setup" play where `roles/tailscale` runs without `roles/bootstrap` in scope.
-See "Tailscale" under "Incompatible Tasks by Category" below.
+See "`Tailscale`" under "Incompatible Tasks by Category" below.
 
 ## Incompatible Tasks by Category
 
@@ -132,10 +133,11 @@ See "Tailscale" under "Incompatible Tasks by Category" below.
 **Location:** `roles/bootstrap/tasks/sshd.yml`
 
 Tasks:
-- "Remove any tcp port 22 allow rules"
-- "Allow tcp port 65432 (SSH)"
 
-**Reason:** WSL-1 kernel doesn't support iptables/netfilter subsystem.
+- `Remove any tcp port 22 allow rules`
+- `Allow tcp port 65432 (SSH)`
+
+**Reason:** WSL-1 kernel doesn't support `iptables`/`netfilter` subsystem.
 
 **Impact:** UFW firewall rules cannot be configured. SSH port forwarding rules must be managed via Windows Firewall or network layer instead.
 
@@ -150,29 +152,30 @@ doesn't ship the `ufw` executable by default (`sources_packages` installing it
 doesn't guarantee it lands before `sshd.yml` runs on every host), and Windows
 owns the network on either WSL generation regardless, so there is nothing
 useful for `ufw` to manage even where the binary is present. This mirrors the
-"Reload NetworkManager" handler below.
+"Reload `NetworkManager`" handler below.
 
 ---
 
-### Tailscale
+### `Tailscale`
 
 **Location:** `roles/tailscale/tasks/main.yml`
 
 Tasks (wrapped in a single `block`):
-- "Install tailscale"
-- "Enable and start tailscaled"
-- "Check tailscale connection status"
-- "Warn if tailscale is not authenticated"
 
-**Reason:** Windows owns the network on both WSL-1 and WSL-2, and tailscale's
+- `Install tailscale`
+- `Enable and start tailscaled`
+- `Check tailscale connection status`
+- `Warn if tailscale is not authenticated`
+
+**Reason:** Windows owns the network on both WSL-1 and WSL-2, and the `tailscale`
 userspace-networking fallback (needed when the kernel TUN device isn't usable)
-is unreliable inside WSL. Run Tailscale on the Windows side and let WSL ride
+is unreliable inside WSL. Run `Tailscale` on the Windows side and let WSL ride
 on that connection instead.
 
 **Impact:** The `tailscale` package is not installed and `tailscaled` is not
 started inside WSL.
 
-**Workaround:** Install and run Tailscale on the Windows host.
+**Workaround:** Install and run `Tailscale` on the Windows host.
 
 **Tag:** `requires_systemd`
 
@@ -184,35 +187,38 @@ reaches this role.
 
 ---
 
-### Service Management / Systemd Handlers
+### Service Management / `systemd` Handlers
 
 **Location:** `roles/bootstrap/handlers/main.yml`
 
 Handlers:
-- "Reload NetworkManager"
-- "Reload symlink-run-utmp"
-- "Restart bluetooth.service"
-- "Restart ssh.service"
-- "Restart ssh.socket"
 
-**Reason:** WSL-1 doesn't properly support systemd service management. Services are in "unknown state" and cannot be reliably restarted or reloaded.
+- `Reload NetworkManager`
+- `Reload symlink-run-utmp`
+- `Restart bluetooth.service`
+- `Restart ssh.service`
+- `Restart ssh.socket`
 
-**"Reload NetworkManager" is different:** it is gated on
+**Reason:** WSL-1 doesn't properly support `systemd` service management. Services are in "unknown state" and cannot be reliably restarted or reloaded.
+
+**`Reload NetworkManager` is different:** it is gated on
 `bootstrap_wsl_version | int == 0`, so it is skipped on **both** WSL-1 and WSL-2.
 Under either, the network interfaces are owned by Windows and there is no
-NetworkManager to reload. A VDI that runs Linux natively is an ordinary Linux
+`NetworkManager` to reload. A VDI that runs Linux natively is an ordinary Linux
 host here and does get the reload — which is why this gate keys off WSL
 detection rather than off `environment_profile`.
 
-**Impact:** Services configured by the playbook may not restart after configuration changes. SSH will continue running if already started before playbook execution, but changes to SSH config won't take effect until next manual restart.
+**Impact:** Services configured by the playbook may not restart after configuration changes. SSH will continue running if already started before playbook execution, but changes to the SSH configuration won't take effect until the next manual restart.
 
 **Workaround:** After running the playbook on WSL-1, manually restart services from Windows PowerShell:
+
 ```powershell
 wsl -d Ubuntu -- sudo service ssh restart
 wsl -d Ubuntu -- sudo service bluetooth restart
 ```
 
 Or within WSL-1 shell:
+
 ```bash
 sudo service ssh restart
 sudo service bluetooth restart
@@ -222,22 +228,23 @@ sudo service bluetooth restart
 
 ---
 
-### Kubernetes Networking Tasks
+### `Kubernetes` Networking Tasks
 
 **Location:** `roles/kubernetes/tasks/worker.yml` (multiple)
 
 Tasks:
-- "Reset iptables before joining to remove old CNI and kube-proxy chains"
-- "Add iptables DNAT rules to redirect VIP to active control plane"
-- "Add iptables MASQUERADE so VIP traffic returns via Tailscale"
-- "Save iptables rules for boot restoration"
-- "Create systemd unit to restore iptables rules on boot"
 
-**Reason:** Kubernetes networking requires NAT rules and packet filtering via iptables. WSL-1 doesn't support these operations.
+- `Reset iptables before joining to remove old CNI and kube-proxy chains`
+- `Add iptables DNAT rules to redirect VIP to active control plane`
+- `Add iptables MASQUERADE so VIP traffic returns via Tailscale`
+- `Save iptables rules for boot restoration`
+- `Create systemd unit to restore iptables rules on boot`
 
-**Impact:** Container networking cannot be fully configured. Kubernetes will not function properly in WSL-1.
+**Reason:** `Kubernetes` networking requires NAT rules and packet filtering via `iptables`. WSL-1 doesn't support these operations.
 
-**Workaround:** Do not deploy Kubernetes workers to WSL-1 environments. Kubernetes requires full kernel features available only on bare-metal or hypervisor-backed VMs.
+**Impact:** Container networking cannot be fully configured. `Kubernetes` will not function properly in WSL-1.
+
+**Workaround:** Do not deploy `Kubernetes` workers to WSL-1 environments. `Kubernetes` requires full kernel features available only on bare-metal or hypervisor-backed virtual machines.
 
 **Tag:** none — these tasks are **not** tagged or gated today, so they will fail
 rather than skip if the role is run on WSL-1. That is acceptable only because the
@@ -246,17 +253,18 @@ should never target WSL-1. Tag them `requires_netfilter` if that changes.
 
 ---
 
-### Login Keyring / libsecret
+### Login Keyring / `libsecret`
 
 **Location:** `roles/bootstrap/tasks/wsl_keyring.yml`
 
 Tasks (wrapped in a single `block`):
-- "Create the keyring with an empty password"
-- "Mark it as the default collection"
+
+- `Create the keyring with an empty password`
+- `Mark it as the default collection`
 
 **Reason:** Neither WSL generation runs a display manager, so nothing creates
 the user's default login keyring and nothing supplies a password to unlock it.
-The Secret Service still starts on demand, so the first libsecret client to ask
+The Secret Service still starts on demand, so the first `libsecret` client to ask
 for a secret — Azure PowerShell persisting its MSAL token cache, a git
 credential helper, anything else — raises a "choose a password for a new
 keyring" dialog. In a headless WSL session that dialog is unanswerable and
@@ -272,22 +280,22 @@ keyring by hand.
 are readable by anyone who can read the file. This is the same posture as a
 desktop login keyring auto-unlocked by PAM, and the file stays mode `0600` in
 the user's home — but do not use it to store secrets you would not leave in a
-dotfile. Tools that can avoid persisting a token at all should do so instead;
+`dotfile`. Tools that can avoid persisting a token at all should do so instead;
 for Azure PowerShell that is `Disable-AzContextAutosave`.
 
-**Tag:** `requires_dbus` — the first task in this repo to actually carry it.
+**Tag:** `requires_dbus` — the first task in this repository to actually carry it.
 
 **Gate:** `bootstrap_wsl_version | int > 0` — runs on **both** WSL-1 and WSL-2,
 not just WSL-1 via `wsl1_incompatible_tags`. This is the inverse of every other
-entry here: the tag marks work that *needs* a session bus, and the gate selects
-hosts that *lack* a display manager to set the keyring up. A native host gets
+entry here: the tag marks work that _needs_ a session bus, and the gate selects
+hosts that _lack_ a display manager to set the keyring up. A native host gets
 its keyring from the desktop session and needs nothing. The block is
 additionally skipped where `gnome-keyring-daemon` is not installed, since
 `gnome-keyring` is only ever pulled in as another package's dependency and a
 host without it has no Secret Service to prompt in the first place.
 
 **Note on the invoking user:** the role runs with `become: true`, so the
-keyring must be written to the *invoking* user's home rather than root's. The
+keyring must be written to the _invoking_ user's home rather than root's. The
 task resolves that from `ansible_facts.env.SUDO_USER`, falling back to
 `ansible_facts.user_id`, then looks the home directory up with `getent`.
 
@@ -300,17 +308,19 @@ When you discover a task that fails in WSL-1/VDI environments:
 1. **Verify the failure is unavoidable** — Run the task on WSL-1 and confirm it fails due to missing kernel features, not configuration issues.
 
 2. **Document the incompatibility** — Add an entry to this file explaining:
+
    - Task name and location
    - Reason for incompatibility
    - Impact on VDI deployments
    - Suggested workarounds (if any)
 
 3. **Add incompatibility tag** — Create a new tag if needed (or use existing):
+
    ```yaml
    - name: "Example task"
      some_module: ...
      tags:
-       - "requires_netfilter"  # or appropriate tag
+       - "requires_netfilter" # or appropriate tag
      when: >-
        not (bootstrap_wsl_version | int == 1 and
             '<tag>' in wsl1_incompatible_tags)
@@ -323,10 +333,11 @@ When you discover a task that fails in WSL-1/VDI environments:
 
 4. **Update roles/bootstrap/defaults/main.yml** — If adding a new
    incompatibility type:
+
    ```yaml
    wsl1_incompatible_tags:
      - "requires_netfilter"
-     - "requires_new_feature"  # Your new tag
+     - "requires_new_feature" # Your new tag
    ```
 
    Do **not** move this to `group_vars/all.yml`: that file is untracked, so a
@@ -386,16 +397,17 @@ As more incompatibilities are discovered, expand the tag system:
 
 ```yaml
 wsl1_incompatible_tags:
-  - "requires_dbus"           # dbus system bus
-  - "requires_gui"            # Graphical session
-  - "requires_netfilter"      # Firewall, container networking
-  - "requires_systemd"        # Service management
-  - "requires_seccomp"        # Seccomp sandboxing (future)
-  - "requires_apparmor"       # AppArmor security profiles (future)
-  - "requires_device_access"  # Hardware device passthrough (future)
+  - "requires_dbus" # dbus system bus
+  - "requires_gui" # Graphical session
+  - "requires_netfilter" # Firewall, container networking
+  - "requires_systemd" # Service management
+  - "requires_seccomp" # Seccomp sandboxing (future)
+  - "requires_apparmor" # AppArmor security profiles (future)
+  - "requires_device_access" # Hardware device passthrough (future)
 ```
 
 Each tag should:
+
 - Be specific to a kernel feature or subsystem
 - Be documented in this file
 - Be applied consistently across all incompatible tasks
@@ -406,6 +418,7 @@ Each tag should:
 ## Related Configuration
 
 See also:
+
 - `roles/bootstrap/defaults/main.yml` — WSL detection and the incompatibility tag list
-- `roles/sources/defaults/main.yml` — `environment_profile` and the VDI repo/package skip lists
+- `roles/sources/defaults/main.yml` — `environment_profile` and the VDI repository/package skip lists
 - `README.md` — Environment Profiles section for usage examples
