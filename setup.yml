@@ -13,3 +13,9 @@
     # - "kubernetes"
     - "printing"
     - "terminal"
+  post_tasks:
+    # Package installation can add or enable units after bootstrap has run.
+    - name: "Reapply the WSL service policy after installing packages"
+      ansible.builtin.import_role:
+        name: "bootstrap"
+        tasks_from: "wsl_services"

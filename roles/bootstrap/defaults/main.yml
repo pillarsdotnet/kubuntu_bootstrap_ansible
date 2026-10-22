@@ -30,6 +30,53 @@ bootstrap_wifi_powersave: "2"
 # keyring" dialog. Set false to leave the keyring alone and accept the prompts;
 # see docs/WSL1_COMPATIBILITY.md for the trade-off this makes.
 bootstrap_wsl_keyring: true
+# Windows/WSLg provide networking, time, hardware and printing for this profile.
+# WSL is a client environment by default, not a database/web/container/VM host.
+# Override the list for intentional Linux-side servers or hardware passthrough.
+# Sockets/paths must be masked too, or they can reactivate stopped services.
+bootstrap_wsl_disabled_units:
+  - "avahi-daemon.socket"
+  - "avahi-daemon.service"
+  - "cups.path"
+  - "cups.socket"
+  - "cups-browsed.service"
+  - "cups.service"
+  - "docker.socket"
+  - "docker.service"
+  - "containerd.service"
+  - "mariadb.service"
+  - "nginx.service"
+  - "named.service"
+  - "fail2ban.service"
+  - "apt-daily-upgrade.timer"
+  - "apt-daily-upgrade.service"
+  - "unattended-upgrades.service"
+  - "libvirtd-admin.socket"
+  - "libvirtd-ro.socket"
+  - "libvirtd-tcp.socket"
+  - "libvirtd-tls.socket"
+  - "libvirtd.socket"
+  - "libvirt-guests.service"
+  - "libvirtd.service"
+  - "virtlockd-admin.socket"
+  - "virtlockd.socket"
+  - "virtlockd.service"
+  - "virtlogd-admin.socket"
+  - "virtlogd.socket"
+  - "virtlogd.service"
+  - "chrony-wait.service"
+  - "chrony.service"
+  - "systemd-timesyncd.service"
+  - "getty@tty1.service"
+  - "NetworkManager-wait-online.service"
+  - "NetworkManager-dispatcher.service"
+  - "NetworkManager.service"
+  - "networkd-dispatcher.service"
+  - "wpa_supplicant.service"
+  - "ModemManager.service"
+  - "bluetooth.service"
+  - "rtkit-daemon.service"
+  - "udisks2.service"
 # Which WSL this host is, if any: 0 = not WSL, 1 = WSL-1, 2 = WSL-2. WSL-1
 # reports a "4.4.0-NNNNN-Microsoft" kernel and WSL-2 a
 # "-microsoft-standard-WSL2" one; no native Ubuntu kernel carries either string.

@@ -229,6 +229,12 @@ The profile is a **trust** setting, not a capability one. Kernel-capability skip
 for WSL is detected automatically and needs no profile — see
 `docs/WSL1_COMPATIBILITY.md`.
 
+On WSL with systemd, bootstrap also stops, disables and masks services outside
+the default client profile, including BIND, MariaDB, nginx, Docker/containerd,
+libvirt, Linux printing and hardware-management daemons. Setup reapplies this
+policy after package installation. See [WSL services](docs/WSL_SERVICES.md) for
+the inventory, rationale and `bootstrap_wsl_disabled_units` override.
+
 ### Running with environment profiles
 
 ```bash
