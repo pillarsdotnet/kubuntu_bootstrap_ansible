@@ -25,7 +25,7 @@
 #    bash-preexec), and zzz_ble_attach.sh runs ble-attach last, as ble.sh
 #    expects. ~/.bashrc itself only guards interactivity and sources
 #    ~/.zellij.d (when outside zellij) and ~/.bashrc.d.
-#  - fnm (from the pillarsdotnet PPA, via sources_packages) replaces nvm.
+#  - fnm (from the forgejo registry, via sources_packages) replaces nvm.
 #    ~/.zellij.d/fnm.sh exports FNM_DIR=~/.fnm and evals "fnm env" once per
 #    session; "alias nvm=fnm" in ~/.bashrc.d/alias.sh keeps nvm muscle memory
 #    working. The nvm hook (~/.zellij.d/nvm.sh) and its NVM_DIR export are

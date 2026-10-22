@@ -44,7 +44,8 @@ sources_ubuntu_releases:
 #     ("nightly"), steam ("beta stable"), toolchain (ubuntu-toolchain-r/test)
 #   - Launchpad PPAs, where any account can upload and nothing is reviewed by
 #     the Ubuntu archive: libreoffice-frexh, linux-wifi-hotspot, openshot,
-#     pillarsdotnet, pipewire, tlp, wireplumber
+#     pipewire, tlp, wireplumber - and forgejo, Bob's own registry, which is
+#     self-hosted and just as unreviewed
 #   - third-party rebuilds and mirrors of someone else's software:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
 # Vendor repos for the vendor's own software (1password, acli, azure-cli,
@@ -57,14 +58,13 @@ sources_ubuntu_releases:
 #   sources_repos: {common: {ubuntu: {suites: "resolute resolute-security ..."}}}
 # (ansible.cfg sets hash_behaviour = merge, so a single nested key is enough.)
 vdi_skip_repos:
-  - "forgejo"        # mirrors the pillarsdotnet PPA, skipped below for the same reason
+  - "forgejo"        # Bob's own packages: nothing any distribution has reviewed
   - "github-desktop"
   - "libreoffice-frexh"
   - "linux-wifi-hotspot"
   - "llvm"
   - "mdatp"
   - "openshot"
-  - "pillarsdotnet"
   - "pipewire"
   - "steam"
   - "tlp"
@@ -77,7 +77,7 @@ vdi_skip_repos:
 # friends are in the Ubuntu archive too, so dropping their PPA just pins them
 # back to the distribution build rather than removing the software.
 vdi_skip_packages:
-  - "fnm"              # only the pillarsdotnet PPA carries it
+  - "fnm"              # only the forgejo registry carries it
   - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
   - "steam-libs-amd64"
 
@@ -87,6 +87,9 @@ sources_obsolete:
   - "lakinduakash-ubuntu-lwh.sources"
   - "libreoffice-prereleases.sources"
   - "mwt-desktop.sources"
+  # The Launchpad PPA this role wrote until 2026-10, replaced by the forgejo
+  # registry below (same content; new uploads go only to the registry).
+  - "pillarsdotnet.sources"
   - "pipewire-upstream.sources"
   - "puppet-tools.sources"
   - "slack-jessie.sources"
@@ -241,16 +244,17 @@ sources_repos:
       signed_by: "/gpg"
       suites: "resolute"
       uris: ""
-    # The self-hosted Forgejo registry on homelab, mirroring the published
-    # debs of the pillarsdotnet PPA (same content, same versions, so apt may
-    # take a package from either and no pin is needed). Like the PPA it
-    # publishes a distribution per release, so follow the host. The signing
-    # key is fetched from the registry itself when the template renders, so
-    # the CONTROLLER must be able to reach forgejo.bobbalisa.org: from the
-    # home LAN that needs the local-DNS override pointing it at homelab,
-    # because the router does not hairpin its own public address.
+    # The self-hosted Forgejo registry on homelab: our own packages and forks
+    # with local fixes. It replaced the pillarsdotnet Launchpad PPA (2026-10),
+    # which carried the same content; the registry is now where new packages
+    # are uploaded. Like the PPA it publishes a distribution per release, so
+    # follow the host. The signing key is fetched from the registry itself
+    # when the template renders, so the CONTROLLER must be able to reach
+    # forgejo.bobbalisa.org: from the home LAN that needs the local-DNS
+    # override pointing it at homelab, because the router does not hairpin
+    # its own public address.
     forgejo:
-      comment: "Bob's Forgejo registry on homelab: mirror of the pillarsdotnet PPA"
+      comment: "Bob's Forgejo registry on homelab: own packages and forks with local fixes"
       server: "https://forgejo.bobbalisa.org"
       signed_by: "/api/packages/pillarsdotnet/debian/repository.key"
       suites: "{{ sources_ubuntu_release }}"
@@ -336,14 +340,6 @@ sources_repos:
       signed_by: "/gpgkey/nodesource-repo.gpg.key"
       suites: "nodistro"
       uris: "/node_24.x"
-    # Our own PPA: packages forked with local fixes, and backports. It
-    # publishes for every release sources_ubuntu_release can name, so follow
-    # the host like the archive does.
-    pillarsdotnet:
-      comment: "Bob's Ubuntu Archive: own packages and forks with local fixes"
-      fingerprint: "7a2741845196b3304fc10a2ceebcb7bca0059163"
-      server: "https://ppa.launchpadcontent.net/pillarsdotnet/ppa"
-      suites: "{{ sources_ubuntu_release }}"
     puppet:
       comment: "Client-server configuration management"
       components: "puppet-tools"
@@ -380,7 +376,7 @@ sources_repos:
         {{ ['', '-backports', '-proposed', '-security', '-updates']
            | map('regex_replace', '^', sources_ubuntu_release) | join(' ') }}
       # deb-src so "apt source" and "apt build-dep" work, for rebuilding an
-      # archive package with local patches (e.g. gimp for the pillarsdotnet PPA).
+      # archive package with local patches (e.g. gimp for the forgejo registry).
       types: "deb deb-src"
     vscode:
       comment: "Free code editor from Microsoft"
