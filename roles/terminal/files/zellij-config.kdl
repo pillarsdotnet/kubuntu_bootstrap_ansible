@@ -207,10 +207,9 @@ keybinds clear-defaults=true {
         bind "%" { NewPane "right"; SwitchToMode "normal"; }
         bind "," { SwitchToMode "renametab"; }
         bind "[" { SwitchToMode "scroll"; }
-        bind "Ctrl z" { SwitchToMode "normal"; }
+        bind "Ctrl z" { Write 26; SwitchToMode "normal"; }
         bind "Ctrl c" { NewTab; SwitchToMode "normal"; }
         bind "Ctrl a" { ToggleTab; SwitchToMode "normal"; }
-        bind "Ctrl g" { SwitchToMode "locked"; }
         bind "Ctrl h" { SwitchToMode "move"; }
         bind "Ctrl n" { SwitchToMode "resize"; }
         bind "Ctrl o" { SwitchToMode "session"; }
