@@ -10,7 +10,7 @@ networking:
   dnsDomain: "cluster.local"
 apiServer:
   certSANs:
-    - "{{ tailscale_ip }}"
+    - "{{ kubernetes_node_ip }}"
     - "{{ kubernetes_vip }}"
     - "127.0.0.1"
     - "localhost"
@@ -19,9 +19,9 @@ apiServer:
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 localAPIEndpoint:
-  advertiseAddress: "{{ tailscale_ip }}"
+  advertiseAddress: "{{ kubernetes_node_ip }}"
   bindPort: 6443
 nodeRegistration:
   criSocket: "unix:///run/containerd/containerd.sock"
   kubeletExtraArgs:
-    node-ip: "{{ tailscale_ip }}"
+    node-ip: "{{ kubernetes_node_ip }}"

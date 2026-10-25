@@ -47,12 +47,9 @@
     path: "/etc/systemd/system/kubelet.service.d"
     state: "directory"
 
-- name: "Configure kubelet to swap around swap and start after tailscaled"
+- name: "Configure kubelet to swap around swap"
   ansible.builtin.copy:
     content: |
-      [Unit]
-      After=tailscaled.service
-      Wants=tailscaled.service
       [Service]
       ExecStartPre=-/sbin/swapoff -a
       ExecStopPost=-/sbin/swapon -a
@@ -95,12 +92,7 @@
   ansible.builtin.command: "sysctl --system"
   changed_when: false
 
-- name: "Get tailscale IPv4 address"
-  ansible.builtin.command: "tailscale ip -4"
-  register: tailscale_ip_result
-  changed_when: false
-
-- name: "Set tailscale_ip fact"
+- name: "Set kubernetes_node_ip fact"
   ansible.builtin.set_fact:
-    tailscale_ip: "{{ tailscale_ip_result.stdout | trim }}"
+    kubernetes_node_ip: "{{ ansible_default_ipv4.address }}"
     cacheable: true

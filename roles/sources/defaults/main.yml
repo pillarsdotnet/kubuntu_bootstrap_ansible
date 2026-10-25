@@ -50,7 +50,7 @@ sources_ubuntu_releases:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
 # Vendor repos for the vendor's own software (1password, acli, azure-cli,
 # docker, gcloud, github-cli, google-chrome, hashicorp, k8s, kitware,
-# microsoft-prod, mozilla, nodesource, puppet, slack, tailscale, vscode) stay:
+# microsoft-prod, mozilla, nodesource, puppet, slack, vscode) stay:
 # their provenance is accountable.
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
 # host with no archive at all. Its "-proposed" suite is a pre-release pocket;
@@ -353,13 +353,6 @@ sources_repos:
       server: "http://apt.puppet.com"
       signed_by: "/pubkey.gpg"
       suites: "noble"
-      uris: ""
-    # No "stonking" (26.10) suite here yet; stay on resolute until there is.
-    tailscale:
-      comment: "Free-to-use VPN"
-      server: "https://pkgs.tailscale.com/stable/ubuntu"
-      signed_by: "/resolute.gpg"
-      suites: "resolute"
       uris: ""
     toolchain:
       comment: "Tools to build Ubuntu packages from source"

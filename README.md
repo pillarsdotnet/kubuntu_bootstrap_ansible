@@ -1,7 +1,7 @@
 # `kubuntu_bootstrap_ansible`
 
 `Ansible` playbooks to bootstrap and configure `Kubuntu` nodes, including
-`Tailscale` networking and a `Kubernetes` cluster with `Calico`.
+a `Kubernetes` cluster with `Calico`.
 
 ## Repository layout
 
@@ -93,7 +93,7 @@ Connection details (`Ansible` SSH user, port, etc.) go in
 
 ## Secrets: `Ansible Vault`
 
-Sensitive values — currently `tailscale_api_key` and `sources_apt_auth` —
+Sensitive values — currently `sources_apt_auth` —
 live in `group_vars/all/vault.yml`, which is encrypted with `Ansible Vault`.
 The directory is excluded from git via `group_vars/.gitignore` so it never
 leaves your local machine.
@@ -116,19 +116,7 @@ chmod 600 ~/.ansible/vault_pass
 The project's `ansible.cfg` already points `vault_password_file` at
 `~/.ansible/vault_pass`, so no flag is needed once that file exists.
 
-### 2. Get a `Tailscale` API key
-
-1. Sign in at <https://login.tailscale.com/admin/settings/keys>
-2. Under **API keys**, click **Generate API key**
-3. Give it a description (e.g. `ansible-kubernetes`) and set an appropriate
-   expiry
-4. Copy the key — it starts with `tskey-api-`
-
-> The API key is used by the `kubernetes` role to approve the `Kubernetes`
-> VIP (`10.254.0.1/32`) as an enabled subnet route on each control plane
-> node, enabling `Tailscale` HA failover between them.
-
-### 3. Get deb.griffo.io credentials
+### 2. Get deb.griffo.io credentials
 
 Since 2026-10-01, deb.griffo.io requires a subscription to download
 packages (`apt update` and browsing stay free). After subscribing at
@@ -144,7 +132,7 @@ credentialed run is removed by the unmanaged-sources cleanup. On a
 skipped along with the repository; on `stonking` the archive's own (older) `uv`
 installs instead.
 
-### 4. Create the vault file
+### 3. Create the vault file
 
 ```bash
 ansible-vault create group_vars/all/vault.yml
@@ -155,7 +143,6 @@ your actual values:
 
 ```yaml
 ---
-tailscale_api_key: "tskey-api-REPLACE_WITH_YOUR_KEY"
 sources_apt_auth:
   griffo:
     machine: "deb.griffo.io"
@@ -177,7 +164,7 @@ To edit it later:
 ansible-vault edit group_vars/all/vault.yml
 ```
 
-### 5. Re-keying or rotating the vault password
+### 4. Re-keying or rotating the vault password
 
 If you need to change the vault password (e.g. after a key rotation):
 
@@ -190,7 +177,7 @@ ansible-vault rekey group_vars/all/vault.yml
 ## Running the playbook
 
 ```bash
-# Full setup (bootstrap → hibernation → sources → tailscale → kubernetes → printing)
+# Full setup (bootstrap → hibernation → sources → kubernetes → printing)
 ansible-playbook setup.yml
 
 # Kubernetes only
@@ -222,7 +209,7 @@ repositories and packages to exclude high-risk or unnecessary sources.
 - **`vdi`**: Filter out repositories that ship alpha or beta builds, or code no
   distribution has reviewed — `Launchpad` `PPA` sources, snapshot/nightly/staging suites, and
   third-party rebuilds of software maintained by someone else. Vendor repositories for the vendor's own
-  software (`Docker`, `Google`, `HashiCorp`, `Tailscale`, `1Password`, `Mozilla`, …) are kept:
+  software (`Docker`, `Google`, `HashiCorp`, `1Password`, `Mozilla`, …) are kept:
   their provenance is accountable. This profile is customizable — see "Customizing
   filtered repositories and packages" below.
 
@@ -309,7 +296,7 @@ To understand which tasks are being skipped and why, read `docs/WSL1_COMPATIBILI
 cat docs/WSL1_COMPATIBILITY.md
 
 # The bootstrap role skips what WSL-1 cannot do on its own; the tagged tasks in
-# the tailscale, printing and sources roles are not gated, so skip them by tag
+# the printing and sources roles are not gated, so skip them by tag
 ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 ```
 
@@ -345,7 +332,7 @@ ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 This will complete successfully with the following limitations:
 
 - Firewall rules will not be configured
-- Services will not be automatically started (`tailscale`, `CUPS`, `NetworkManager`, etc.)
+- Services will not be automatically started (`CUPS`, `NetworkManager`, etc.)
 - `systemd`-dependent packages will be partially installed but not configured
 
 For full functionality, upgrade to WSL2 (which includes `Hyper-V` nested virtualization
@@ -374,20 +361,10 @@ New code should lint clean against the `production` profile before committing.
 
 ---
 
-## `Kubernetes` VIP and `Tailscale` subnet routing
+## `Kubernetes` VIP
 
-After the `kubernetes` role runs, each control plane node will have:
-
-- `10.254.0.1/32` bound to a `dummy-k8svip` interface (persistent via
-  `systemd-networkd`)
-- The route advertised to `Tailscale` via `tailscale set --advertise-routes`
-- The route approved in the `Tailscale` admin console via the API
-
-When you add further control plane nodes (`cp-1`, `cp-2`, …), re-running
-the playbook will advertise and approve the VIP route on those nodes too.
-`Tailscale` will automatically fail over between advertisers if a node goes
-down.
-
-> **Note:** `Tailscale` subnet route HA failover requires the route to be
-> approved on **each** advertising node individually in the admin console.
-> The role does this automatically when `tailscale_api_key` is set.
+After the `kubernetes` role runs, each control plane node has `10.254.0.1/32`
+bound to a `dummy-k8svip` interface (persistent via `systemd-networkd`).
+Worker nodes reach the VIP through `iptables` DNAT rules that redirect it to
+the first control plane node's address, restored at boot by the
+`k8s-iptables-restore` unit.

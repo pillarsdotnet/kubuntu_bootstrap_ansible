@@ -62,8 +62,7 @@ class FilterModule:
         """Return the addresses that are routable on the public internet.
 
         Private ranges, loopback, link-local and the carrier-grade NAT range
-        that Tailscale uses are all dropped, so a host behind NAT yields an
-        empty list.
+        are all dropped, so a host behind NAT yields an empty list.
 
         Args:
             addresses: IP address strings, such as a host's

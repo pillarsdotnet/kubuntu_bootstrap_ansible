@@ -3,7 +3,7 @@
   ansible.builtin.service_facts:
 # bootstrap_wsl_version is a role default, computed from ansible_facts.kernel,
 # so it is only in scope while roles/bootstrap is running. The later "Setup"
-# play in setup.yml runs roles/sources, roles/tailscale, roles/printing
+# play in setup.yml runs roles/sources, roles/printing
 # without roles/bootstrap in scope, so any of those that need to gate on WSL
 # would otherwise see 'bootstrap_wsl_version is undefined'. set_fact promotes
 # it to a real host fact that survives into those later plays, same as

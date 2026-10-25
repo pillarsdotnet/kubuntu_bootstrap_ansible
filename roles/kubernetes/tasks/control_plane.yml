@@ -27,57 +27,6 @@
 - name: "Flush handlers to bring up VIP interface before kubeadm"
   ansible.builtin.meta: "flush_handlers"
 
-- name: "Advertise and approve VIP subnet route via Tailscale"
-  when: "tailscale_api_key | length > 0"
-  block:
-    - name: "Advertise VIP via tailscale set"
-      ansible.builtin.command: >-
-        tailscale set --advertise-routes={{ kubernetes_vip }}/32 --accept-routes
-      changed_when: false
-
-    - name: "Get Tailscale device list"
-      ansible.builtin.uri:
-        url: "https://api.tailscale.com/api/v2/tailnet/-/devices"
-        headers:
-          Authorization: "Bearer {{ tailscale_api_key }}"
-        method: "GET"
-      register: tailscale_devices_result
-      changed_when: false
-      no_log: true
-
-    - name: "Find this node's Tailscale device ID by IP"
-      ansible.builtin.set_fact:
-        tailscale_device_id: >-
-          {{ (tailscale_devices_result.json.devices
-              | selectattr('addresses', 'contains', tailscale_ip)
-              | list | first).id }}
-
-    - name: "Get current enabled routes for this device"
-      ansible.builtin.uri:
-        url: "https://api.tailscale.com/api/v2/device/{{ tailscale_device_id }}/routes"
-        headers:
-          Authorization: "Bearer {{ tailscale_api_key }}"
-        method: "GET"
-      register: tailscale_routes_result
-      changed_when: false
-      no_log: true
-
-    - name: "Approve VIP subnet route in Tailscale admin"
-      ansible.builtin.uri:
-        url: "https://api.tailscale.com/api/v2/device/{{ tailscale_device_id }}/routes"
-        headers:
-          Authorization: "Bearer {{ tailscale_api_key }}"
-        method: "POST"
-        body_format: "json"
-        body:
-          routes:
-            - "{{ kubernetes_vip }}/32"
-        status_code: [200]
-      when: >-
-        kubernetes_vip + '/32' not in
-        (tailscale_routes_result.json.enabledRoutes | default([]))
-      no_log: true
-
 - name: "Get installed kubeadm version"
   ansible.builtin.shell:
     cmd: "kubeadm version -o json | jq -r '.clientVersion.gitVersion'"
@@ -103,7 +52,7 @@
 
 - name: "Wait for API server to respond"
   ansible.builtin.wait_for:
-    host: "{{ tailscale_ip }}"
+    host: "{{ kubernetes_node_ip }}"
     port: 6443
     timeout: 120
 

@@ -18,10 +18,6 @@
     done
   changed_when: false
 
-- name: "Accept Tailscale subnet routes"
-  ansible.builtin.command: "tailscale set --accept-routes"
-  changed_when: false
-
 - name: "Add iptables DNAT rules to redirect VIP to active control plane"
   ansible.builtin.iptables:
     table: nat
@@ -30,17 +26,17 @@
     protocol: tcp
     destination_port: "6443"
     jump: DNAT
-    to_destination: "{{ hostvars[cp_host]['tailscale_ip'] }}:6443"
+    to_destination: "{{ hostvars[cp_host]['kubernetes_node_ip'] }}:6443"
     comment: "k8s VIP redirect"
   loop:
     - "OUTPUT"
     - "PREROUTING"
 
-- name: "Add iptables MASQUERADE so VIP traffic returns via Tailscale"
+- name: "Add iptables MASQUERADE so VIP replies route back to this node"
   ansible.builtin.iptables:
     table: nat
     chain: "POSTROUTING"
-    destination: "{{ hostvars[cp_host]['tailscale_ip'] }}"
+    destination: "{{ hostvars[cp_host]['kubernetes_node_ip'] }}"
     protocol: tcp
     destination_port: "6443"
     jump: MASQUERADE
@@ -64,8 +60,6 @@
     content: |
       [Unit]
       Description=Restore iptables rules for k8s VIP redirect
-      After=tailscaled.service
-      Wants=tailscaled.service
       Before=kubelet.service
       [Service]
       Type=oneshot

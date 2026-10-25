@@ -120,11 +120,10 @@ tag-skip flags:
 ansible-playbook setup.yml --skip-tags requires_netfilter,requires_systemd
 ```
 
-`roles/tailscale` is the exception: `bootstrap_wsl_version` is promoted from a
-role default to a real host fact by a `set_fact` in
-`roles/bootstrap/tasks/main.yml`, which lets it survive into the later
-"Setup" play where `roles/tailscale` runs without `roles/bootstrap` in scope.
-See "`Tailscale`" under "Incompatible Tasks by Category" below.
+`bootstrap_wsl_version` is promoted from a role default to a real host fact by
+a `set_fact` in `roles/bootstrap/tasks/main.yml`, which lets it survive into
+the later "Setup" play, where `roles/printing` and the `wsl_services` reapply
+run without `roles/bootstrap` in scope.
 
 ## Incompatible Tasks by Category
 
@@ -153,37 +152,6 @@ doesn't guarantee it lands before `sshd.yml` runs on every host), and Windows
 owns the network on either WSL generation regardless, so there is nothing
 useful for `ufw` to manage even where the binary is present. This mirrors the
 "Reload `NetworkManager`" handler below.
-
----
-
-### `Tailscale`
-
-**Location:** `roles/tailscale/tasks/main.yml`
-
-Tasks (wrapped in a single `block`):
-
-- `Install tailscale`
-- `Enable and start tailscaled`
-- `Check tailscale connection status`
-- `Warn if tailscale is not authenticated`
-
-**Reason:** Windows owns the network on both WSL-1 and WSL-2, and the `tailscale`
-userspace-networking fallback (needed when the kernel TUN device isn't usable)
-is unreliable inside WSL. Run `Tailscale` on the Windows side and let WSL ride
-on that connection instead.
-
-**Impact:** The `tailscale` package is not installed and `tailscaled` is not
-started inside WSL.
-
-**Workaround:** Install and run `Tailscale` on the Windows host.
-
-**Tag:** `requires_systemd`
-
-**Gate:** `bootstrap_wsl_version | int == 0` — skipped on **both** WSL-1 and
-WSL-2, not just WSL-1. Unlike most `requires_systemd` tasks, this does not use
-`wsl1_incompatible_tags`, since the reason to skip applies to WSL-2 as well.
-See "Where the gates actually are" above for how `bootstrap_wsl_version`
-reaches this role.
 
 ---
 
@@ -236,7 +204,7 @@ Tasks:
 
 - `Reset iptables before joining to remove old CNI and kube-proxy chains`
 - `Add iptables DNAT rules to redirect VIP to active control plane`
-- `Add iptables MASQUERADE so VIP traffic returns via Tailscale`
+- `Add iptables MASQUERADE so VIP replies route back to this node`
 - `Save iptables rules for boot restoration`
 - `Create systemd unit to restore iptables rules on boot`
 
