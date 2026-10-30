@@ -1,5 +1,9 @@
 ---
 bootstrap_bluetooth_auto_enable: "true"
+# USB vendor:product of the Bluetooth controller whose runtime power
+# management must stay off (see tasks/bluetooth.yml). 8087:0037 is the Intel
+# BE201; override in host_vars for a host with a different controller.
+bootstrap_bluetooth_controller_usb_id: "8087:0037"
 bootstrap_bluetooth_reconnect_attempts: "5"
 bootstrap_bluetooth_reconnect_intervals: "1,2,4,8,16"
 bootstrap_bluetooth_resume_delay: "2"

@@ -19,6 +19,15 @@
   when: >-
     not (bootstrap_wsl_version | int == 1 and
          'requires_systemd' in wsl1_incompatible_tags)
+- name: "Reload udev rules"
+  ansible.builtin.command:
+    cmd: "udevadm control --reload"
+  changed_when: true
+  tags:
+    - "requires_systemd"
+  when: >-
+    not (bootstrap_wsl_version | int == 1 and
+         'requires_systemd' in wsl1_incompatible_tags)
 - name: "Restart bluetooth.service"
   ansible.builtin.systemd_service:
     name: "bluetooth.service"

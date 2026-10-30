@@ -43,7 +43,7 @@
   ansible.builtin.include_tasks: "sshd.yml"
 - name: "Workaround systemd deprecation of /run/utmp"
   ansible.builtin.include_tasks: "deprecate_run_utmp.yml"
-- name: "Enforce BlueZ audio auto-reconnect policy"
+- name: "Configure Bluetooth reconnect policy and power management"
   ansible.builtin.include_tasks: "bluetooth.yml"
   when:
     - ansible_facts.services["bluetooth.service"] is defined

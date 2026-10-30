@@ -27,3 +27,47 @@
   loop_control:
     label: "{{ item.option }}"
   notify: "Restart bluetooth.service"
+# USB autosuspend puts the Bluetooth controller to sleep 2 s after it goes
+# idle, and the Intel BE201 handles the wakeups badly: the kernel logs "SCO
+# packet for unknown connection handle", WirePlumber logs "Failure in
+# Bluetooth audio transport" every few seconds, A2DP streams terminate
+# unexpectedly, and the HFP microphone delivers silence. The AX211 this card
+# replaced tolerated autosuspend; the BE201 does not (diagnosed 2026-10-29 on
+# bobse16). Three layers because each covers a different moment: the modprobe
+# option applies when btusb next loads, the udev rule when the device is next
+# enumerated, and the sysfs task fixes the controller that is live right now.
+- name: "Keep btusb loaded with autosuspend off"
+  ansible.builtin.copy:
+    content: "options btusb enable_autosuspend=n\n"
+    dest: "/etc/modprobe.d/btusb-no-autosuspend.conf"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+- name: "Pin the Bluetooth controller's USB power/control to on"
+  ansible.builtin.copy:
+    content: >
+      ACTION=="add", SUBSYSTEM=="usb",
+      ATTR{idVendor}=="{{ bootstrap_bluetooth_controller_usb_id.split(':')[0] }}",
+      ATTR{idProduct}=="{{ bootstrap_bluetooth_controller_usb_id.split(':')[1] }}",
+      ATTR{power/control}="on"
+    dest: "/etc/udev/rules.d/81-bt-no-autosuspend.rules"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+  notify: "Reload udev rules"
+- name: "Turn off runtime suspend on the live Bluetooth controller"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      changed=0
+      for dev in /sys/bus/usb/devices/*; do
+        [ -f "$dev/idVendor" ] || continue
+        id="$(cat "$dev/idVendor"):$(cat "$dev/idProduct")"
+        [ "$id" = "{{ bootstrap_bluetooth_controller_usb_id }}" ] || continue
+        [ "$(cat "$dev/power/control")" = "on" ] && continue
+        echo on > "$dev/power/control"
+        changed=1
+      done
+      echo "changed=$changed"
+  register: bootstrap_bluetooth_power_control
+  changed_when: "'changed=1' in bootstrap_bluetooth_power_control.stdout"
