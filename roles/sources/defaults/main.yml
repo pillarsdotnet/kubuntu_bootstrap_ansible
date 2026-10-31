@@ -50,7 +50,7 @@ sources_ubuntu_releases:
 #     github-desktop (an unofficial build mirrored at mirror.mwt.me), waydroid
 # Vendor repos for the vendor's own software (1password, acli, azure-cli,
 # docker, gcloud, github-cli, google-chrome, hashicorp, k8s, kitware,
-# microsoft-prod, mozilla, nodesource, puppet, slack, vscode) stay:
+# microsoft-prod, mozilla, nodesource, puppet, slack, trivy, vscode) stay:
 # their provenance is accountable.
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
 # host with no archive at all. Its "-proposed" suite is a pre-release pocket;
@@ -80,6 +80,7 @@ vdi_skip_packages:
   - "fnm"              # only the forgejo registry carries it
   - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
   - "steam-libs-amd64"
+  - "vale"             # only the forgejo registry carries it
 
 # Stale sources files created by apt-add-repository or packages that duplicate
 # our managed .sources files with conflicting key formats.
@@ -359,6 +360,16 @@ sources_repos:
       fingerprint: "c8ec952e2a0e1fbdc5090f6a2c277a0a352154e5"
       server: "https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test"
       suites: "plucky"
+    # Aqua's own repo; the single "generic" suite serves every release, since
+    # trivy is one static Go binary. The Ubuntu and Debian archives carry no
+    # trivy at all, and the copy in microsoft-prod is pinned out with
+    # everything else there (see sources_preferences).
+    trivy:
+      comment: "Aqua Security's vulnerability and misconfiguration scanner"
+      server: "https://aquasecurity.github.io"
+      signed_by: "/trivy-repo/deb/public.key"
+      suites: "generic"
+      uris: "/trivy-repo/deb"
     ubuntu:
       # i386 is not for our own use - it is for Steam's 32-bit runtime, which
       # drags in ~150 i386 library packages from this archive. Those libraries
@@ -772,6 +783,7 @@ sources_packages:
     - "tio"
     - "tmux"
     - "trace-cmd"
+    - "trivy"
     - "ubuntu-fan"
     - "ubuntu-kernel-accessories"
     - "ubuntu-pro-client-l10n"
@@ -782,6 +794,7 @@ sources_packages:
     - "util-linux-extra"
     - "uuid-runtime"
     - "uv"
+    - "vale"
     - "vim"
     - "w3m"
     - "wamerican-insane"
