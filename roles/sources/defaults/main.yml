@@ -78,6 +78,7 @@ vdi_skip_repos:
 # back to the distribution build rather than removing the software.
 vdi_skip_packages:
   - "fnm"              # only the forgejo registry carries it
+  - "helm"             # only the forgejo registry carries it
   - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
   - "steam-libs-amd64"
   - "vale"             # only the forgejo registry carries it
@@ -561,6 +562,7 @@ sources_packages:
     - "gsasl-common"
     - "haveged"
     - "headscale"
+    - "helm"
     - "help2man"
     - "htop"
     - "hyphen-en-us"
