@@ -98,7 +98,12 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
-      entry=$(efibootmgr | sed -n 's/^Boot\([0-9A-F]\{4\}\)\*\{0,1\} .*\\EFI\\systemd\\systemd-bootx64\.efi.*/\1/p' | head -n1)
+      # Matched on the loader's filename alone, case-insensitively, because
+      # the ESP is FAT and nothing normalises the spelling the firmware
+      # stores: acermagic's reports \EFI\SYSTEMD\SYSTEMD-BOOTX64.EFI where
+      # bootctl wrote \EFI\systemd\systemd-bootx64.efi. Matching the path as
+      # written found no entry and failed the run.
+      entry=$(efibootmgr | sed -n 's|^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} .*[\\/]systemd-boot[a-z0-9]*\.efi.*|\1|Ip' | head -n1)
       [ -n "$entry" ] || { echo "no systemd-boot firmware entry" >&2; exit 1; }
       if efibootmgr | grep -qx "BootNext: $entry"; then exit 0; fi
       efibootmgr --bootnext "$entry" >/dev/null
