@@ -194,6 +194,34 @@ If you did **not** configure `vault_password_file` in `ansible.cfg`, add
 ansible-playbook setup.yml --ask-vault-pass
 ```
 
+### The first run against a fresh host needs `-K`
+
+`roles/bootstrap` grants the `ansible` user `sudo` without a password by writing
+`/etc/sudoers.d/10-installer`, but writing that file itself needs `become` -
+so the very first run against a newly installed host has no way in and fails
+during fact gathering:
+
+```text
+module_stdout: "sudo: interactive authentication is required"
+```
+
+Supply the `ansible` account's password once with `-K`:
+
+```bash
+ansible-playbook setup.yml --limit newhost -K
+```
+
+That run replaces the installer's own `10-installer` - which grants the `sudo`
+group password-authenticated access only - with a `NOPASSWD` rule, and every
+later run against the host works without `-K`. On a desktop install the
+`ansible` account is the primary user created by the installer, so the password
+is the one chosen during installation.
+
+The wording of the error varies by release. `Ubuntu` 25.10 and later ship
+`sudo-rs` rather than the original `sudo`, and it reports a missing password as
+"interactive authentication is required" where `sudo` said "a password is
+required".
+
 ---
 
 ## Environment Profiles: VDI and High-Risk Deployments
