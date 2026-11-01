@@ -513,8 +513,8 @@ sources_packages:
     - "command-not-found"
     # No "cowbuilder" here: stonking dropped it along with its cowdancer
     # source package, and there is no newer build of either. pbuilder, the
-    # tool cowbuilder wrapped, is still packaged if a build chroot is
-    # wanted again - it is deliberately not substituted here.
+    # tool it wrapped, is listed instead; the build chroot it makes is not
+    # copy-on-write, so a build starts slower than cowbuilder made it.
     - "cpu-checker"
     - "cryfs"
     - "cryptsetup-initramfs"
@@ -721,6 +721,7 @@ sources_packages:
     - "packagekit-command-not-found"
     - "pandoc"
     - "pastebinit"
+    - "pbuilder"
     - "pigz"
     - "pipenv"
     - "pipx"
