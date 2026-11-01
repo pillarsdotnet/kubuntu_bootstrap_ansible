@@ -138,6 +138,26 @@
   changed_when: "'Removing unmanaged repository:' in sources_unmanaged.stdout"
   tags:
     - "vdi-cleanup"
+# sources_preferences is the one dict here whose partial override would go
+# unnoticed. A host that assigns it in host_vars replaces the role default
+# whole (hash_behaviour is "replace" - see ansible.cfg), and dropping the
+# kubernetes entry silently lets apt take kubectl from cloud-sdk, whose epoch
+# outranks every pkgs.k8s.io version. The other dicts fail loudly instead: a
+# partial sources_repos trips the key assertion above, and a partial
+# sources_packages or sources_defaults leaves a key the template needs
+# undefined. Fail here too rather than write an incomplete pin set.
+- name: "Check the apt pins were not partially overridden"
+  ansible.builtin.assert:
+    that:
+      - "'kubernetes' in sources_preferences"
+      - "'microsoft-prod' in sources_preferences"
+    fail_msg: >-
+      sources_preferences is missing
+      {{ ['kubernetes', 'microsoft-prod'] | reject('in', sources_preferences)
+         | list }}. Assigning it in host_vars replaces the role default whole;
+      restate every entry, or add a sources_preferences_overrides seam as
+      ansible.cfg describes.
+    quiet: true
 - name: "Write apt pins to /etc/apt/preferences.d/ folder"
   ansible.builtin.copy:
     content: "{{ item.value }}"

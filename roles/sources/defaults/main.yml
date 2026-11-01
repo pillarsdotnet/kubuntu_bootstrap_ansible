@@ -37,6 +37,16 @@ sources_ubuntu_release: >-
 sources_ubuntu_releases:
   - "resolute"
   - "stonking"
+# Pockets suffixed to the release name to build the archive's suites. Named
+# rather than written inline so one host can narrow it, which is the way to
+# refuse the "-proposed" pre-release pocket while keeping the archive:
+#   sources_ubuntu_pockets: ["", "-backports", "-security", "-updates"]
+sources_ubuntu_pockets:
+  - ""
+  - "-backports"
+  - "-proposed"
+  - "-security"
+  - "-updates"
 
 # Repos dropped under the "vdi" profile, because they ship alpha or beta builds,
 # or code that no distribution has reviewed:
@@ -53,10 +63,8 @@ sources_ubuntu_releases:
 # microsoft-prod, mozilla, nodesource, puppet, slack, trivy, vscode) stay:
 # their provenance is accountable.
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
-# host with no archive at all. Its "-proposed" suite is a pre-release pocket;
-# to drop just that, override the suites for one host instead:
-#   sources_repos: {common: {ubuntu: {suites: "resolute resolute-security ..."}}}
-# (ansible.cfg sets hash_behaviour = merge, so a single nested key is enough.)
+# host with no archive at all. To keep the archive but refuse its "-proposed"
+# pre-release pocket, narrow sources_ubuntu_pockets for that host.
 vdi_skip_repos:
   - "forgejo"        # Bob's own packages: nothing any distribution has reviewed
   - "github-desktop"
@@ -173,8 +181,9 @@ sources_auth_required_repos:
 sources_auth_required_packages:
   griffo: "{{ ['uv'] if sources_ubuntu_release == 'resolute' else [] }}"
 # Files written to /etc/apt/apt.conf.d/, keyed by filename (keep a .conf
-# suffix: apt silently ignores most other extensions). Empty by default; a
-# host adds entries from host_vars (ansible.cfg's hash_behaviour = merge).
+# suffix: apt silently ignores most other extensions). Empty by default, so a
+# host assigning it in host_vars supplies the whole content and needs no
+# merging.
 # homelab uses this for a DPkg::Post-Invoke hook that restores the ownership
 # of the live Forgejo instance's directories, which the griffo forgejo
 # package's postinst resets to git:git on every configure.
@@ -385,7 +394,7 @@ sources_repos:
       fingerprint: "f6ecb3762474eda9d21b7022871920d1991bc93c"
       server: "http://us.archive.ubuntu.com"
       suites: >-
-        {{ ['', '-backports', '-proposed', '-security', '-updates']
+        {{ sources_ubuntu_pockets
            | map('regex_replace', '^', sources_ubuntu_release) | join(' ') }}
       # deb-src so "apt source" and "apt build-dep" work, for rebuilding an
       # archive package with local patches (e.g. gimp for the forgejo registry).
