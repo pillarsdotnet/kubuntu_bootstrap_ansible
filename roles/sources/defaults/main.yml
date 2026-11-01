@@ -468,6 +468,16 @@ sources_mail_transport_agent: >-
      if (ansible_all_ipv4_addresses | default([]) | global_addresses)
      else 'dma' }}
 
+# Packages to install, by host kind: "common" everywhere, plus "desktop" where
+# bootstrap_gui is true and "headless" where it is false.
+#
+# List only what nothing else here already requires. A package that another
+# entry pulls in through Depends is installed either way, and naming it twice
+# only hides which entry actually wants it - breeze-icon-theme came in with
+# kde-plasma-desktop, git-lfs with forgejo, nginx with python3-certbot-nginx.
+# An entry that only a "desktop" package requires still has to be listed under
+# "common", though, because headless hosts install none of those: geoclue-2.0,
+# ncurses-term and python3-babel are here for that reason.
 sources_packages:
   common:
     - "1password"
@@ -501,7 +511,10 @@ sources_packages:
     - "clinfo"
     - "cmark"
     - "command-not-found"
-    - "cowbuilder"
+    # No "cowbuilder" here: stonking dropped it along with its cowdancer
+    # source package, and there is no newer build of either. pbuilder, the
+    # tool cowbuilder wrapped, is still packaged if a build chroot is
+    # wanted again - it is deliberately not substituted here.
     - "cpu-checker"
     - "cryfs"
     - "cryptsetup-initramfs"
@@ -543,16 +556,13 @@ sources_packages:
     - "genisoimage"
     - "geoclue-2.0"
     - "gh"
-    - "git-lfs"
     - "gitlab-cli"
     - "gnupg-agent"
     - "gnupg-utils"
     - "golang-docker-credential-helpers"
-    - "golang-github-gogo-protobuf-dev"
     - "golang-github-machinebox-graphql-dev"
     - "golang-github-shurcool-graphql-dev"
     - "golang-github-sigstore-protobuf-specs-dev"
-    - "golang-golang-x-tools"
     - "golang-protobuf-extensions-dev"
     - "google-cloud-cli-anthoscli"
     - "google-cloud-cli-minikube"
@@ -601,7 +611,6 @@ sources_packages:
     - "libdate-calc-xs-perl"
     - "libdate-manip-perl"
     - "libdbd-mariadb-perl"
-    - "libdistro-info-perl"
     - "libdw-dev"
     - "libehcache-java"
     - "libfcgi-bin"
@@ -700,7 +709,6 @@ sources_packages:
     - "network-manager-openconnect"
     - "network-manager-pptp"
     - "networkd-dispatcher"
-    - "nginx"
     - "nmap"
     - "node-graphql"
     - "notmuch"
@@ -759,7 +767,6 @@ sources_packages:
     - "python3-tornado"
     - "python3-tqdm"
     - "python3-unidiff"
-    - "python3-venv"
     - "rapidjson-dev"
     - "ripgrep"
     - "rsyslog"
@@ -792,7 +799,6 @@ sources_packages:
     - "ufw"
     - "unar"
     - "unattended-upgrades"
-    - "unzip"
     - "util-linux-extra"
     - "uuid-runtime"
     - "uv"
@@ -831,7 +837,6 @@ sources_packages:
     - "avra"
     - "bluez-cups"
     - "breeze-gtk-theme"
-    - "breeze-icon-theme"
     - "cen64"
     - "cm-super"
     - "code"
@@ -1064,7 +1069,6 @@ sources_packages:
     - "fonts-tuffy"
     - "fonts-ubuntu-console"
     - "fonts-ubuntu-title"
-    - "fonts-unifont"
     - "fonts-vollkorn"
     - "fonts-wine"
     - "fonts-xfree86-nonfree"
@@ -1098,7 +1102,11 @@ sources_packages:
     - "grub-theme-breeze"
     - "gsfonts-other"
     - "gstreamer1.0-gl"
-    - "gstreamer1.0-vaapi"
+    # No VA-API entry here. GStreamer 1.28 dropped the gstreamer-vaapi module
+    # and stonking carries no gstreamer1.0-vaapi, which is what failed the
+    # whole install transaction. Its replacement, libgstva.so in
+    # gstreamer1.0-plugins-extra, arrives anyway by way of
+    # kamoso -> gstreamer1.0-plugins-bad -> gstreamer1.0-plugins-extra.
     - "gtk-doc-tools"
     - "gvfs-backends"
     - "gwenview"
@@ -1167,7 +1175,6 @@ sources_packages:
     - "libatk-wrapper-java-jni"
     - "libbaloowidgets-bin"
     - "libbdplus0"
-    - "libc6-dev"
     - "libcanberra-gtk3-module"
     - "libcanberra-pulse"
     - "libclutter-1.0-common"
@@ -1175,7 +1182,6 @@ sources_packages:
     - "libcupsfilters-dev"
     - "libdecor-0-plugin-1-gtk"
     - "libdisplay-info-bin"
-    - "libdrm-dev"
     - "libgail-common"
     - "libgl1-mesa-dev"
     - "libgphoto2-l10n"
@@ -1248,7 +1254,8 @@ sources_packages:
     - "mesa-common-dev"
     - "mesa-utils"
     - "mesa-vulkan-drivers"
-    - "micropolis"
+    # No "micropolis" here: Debian removed it and stonking carries no
+    # candidate, nor any successor package under another name.
     - "mokutil"
     - "mpv"
     - "mupdf-tools"
@@ -1319,11 +1326,12 @@ sources_packages:
     - "printer-driver-splix"
     - "psf-unifont"
     - "pulseaudio-utils"
-    - "qdbus-qt6"
     - "qemu-block-extra"
     - "qemu-system-gui"
     - "qemu-system-modules-spice"
-    - "qml-module-org-kde-ksysguard"
+    # No "qml-module-org-kde-ksysguard" here: that was the Qt5 name, gone
+    # from stonking. The Qt6 build arrives by way of
+    # kde-plasma-desktop -> plasma-workspace -> qml6-module-org-kde-ksysguard.
     - "qml-module-org-kde-newstuff"
     - "qml-module-qtquick-xmllistmodel"
     - "qml6-module-qtqml-xmllistmodel"
