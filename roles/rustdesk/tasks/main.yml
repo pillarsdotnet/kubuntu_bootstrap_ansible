@@ -43,6 +43,12 @@
         cmd: "/usr/bin/rustdesk --get-id"
       register: "rustdesk_id"
     - name: "Set rustdesk custom facts"
+      # ansible_local, not ansible_facts.local: local facts are the one
+      # exception to the ansible_facts spelling. ansible-core populates
+      # ansible_local whether or not inject_facts_as_vars is set, and never
+      # populates ansible_facts.local - measured both ways on 2.22. Spelled
+      # the other way this condition is always true and the file is rewritten
+      # on every run.
       when: >
         ansible_local.rustdesk is not defined and
         rustdesk_id.stdout is defined

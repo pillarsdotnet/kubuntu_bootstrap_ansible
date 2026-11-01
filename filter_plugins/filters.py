@@ -66,7 +66,7 @@ class FilterModule:
 
         Args:
             addresses: IP address strings, such as a host's
-                `ansible_all_ipv4_addresses` fact.
+                `all_ipv4_addresses` fact.
 
         Returns:
             The members of `addresses` that are globally routable.

@@ -94,5 +94,5 @@
 
 - name: "Set kubernetes_node_ip fact"
   ansible.builtin.set_fact:
-    kubernetes_node_ip: "{{ ansible_default_ipv4.address }}"
+    kubernetes_node_ip: "{{ ansible_facts.default_ipv4.address }}"
     cacheable: true

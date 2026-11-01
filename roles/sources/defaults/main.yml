@@ -465,7 +465,7 @@ sources_repos:
 # every one of them an MX.
 sources_mail_transport_agent: >-
   {{ 'opensmtpd'
-     if (ansible_all_ipv4_addresses | default([]) | global_addresses)
+     if (ansible_facts.all_ipv4_addresses | default([]) | global_addresses)
      else 'dma' }}
 
 # Packages to install, by host kind: "common" everywhere, plus "desktop" where
