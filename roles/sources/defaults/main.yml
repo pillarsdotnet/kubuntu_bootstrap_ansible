@@ -187,7 +187,27 @@ sources_auth_required_packages:
 # homelab uses this for a DPkg::Post-Invoke hook that restores the ownership
 # of the live Forgejo instance's directories, which the griffo forgejo
 # package's postinst resets to git:git on every configure.
-sources_apt_conf: {}
+# The registry's packages are invisible to unattended-upgrades until its
+# origin is allowed: the default list holds Ubuntu's own origins only. "Forgejo
+# on homelab" is the Origin, and the Label, that the registry's Release file
+# declares for noble, resolute and stonking alike, checked against all three on
+# 2026-11-04; unattended-upgrades expands ${distro_codename} to the suite name,
+# which the registry sets to match on each.
+#
+# This allows every package in that registry, not just the one that prompted
+# it: anything published there can arrive through an unattended upgrade.
+#
+# sources_vdi_skip_repos lists "forgejo", so a vdi host has no registry source
+# and this entry matches nothing there.
+#
+# Note the override rule above: a host that sets sources_apt_conf in host_vars
+# replaces this default rather than adding to it. homelab does, for its Forgejo
+# ownership hook, so homelab does not pick this entry up from here.
+sources_apt_conf:
+  51unattended-upgrades-forgejo: |
+    Unattended-Upgrade::Allowed-Origins {
+            "Forgejo on homelab:${distro_codename}";
+    };
 # Files written to /etc/apt/preferences.d/, keyed by filename.
 sources_preferences:
   kubernetes: |
