@@ -5,15 +5,15 @@
 # of a third-party repo outweighs the software in it. This lives here, in role
 # defaults, rather than in group_vars/all.yml: that file is untracked (see
 # README "Repository layout"), so a fresh clone had nothing defining it and
-# every task gating on it failed with "'environment_profile' is undefined".
-environment_profile: "standard"
+# every task gating on it failed with "'sources_environment_profile' is undefined".
+sources_environment_profile: "standard"
 
 # Extra repos and packages to leave out on this host, on top of whatever the
 # profile below contributes. Both are user-facing knobs - pass them with
-# -e "skip_repos=[...]" / -e "skip_packages=[...]" or set them per host in
+# -e "sources_skip_repos=[...]" / -e "sources_skip_packages=[...]" or set them per host in
 # host_vars/<hostname>.yml.
-skip_packages: []
-skip_repos: []
+sources_skip_packages: []
+sources_skip_repos: []
 # Services installed from sources_packages that this host should not run,
 # such as ["kubelet"]. Installing a package enables its service, so naming it
 # here keeps it stopped and disabled through every run. Set per host in
@@ -30,7 +30,7 @@ sources_disabled_services: []
 # run the bootstrap role.
 sources_wsl: "{{ 'microsoft' in (ansible_facts.kernel | default('') | lower) }}"
 sources_ubuntu_release: >-
-  {{ 'resolute' if environment_profile == 'vdi' or sources_wsl | bool
+  {{ 'resolute' if sources_environment_profile == 'vdi' or sources_wsl | bool
      else 'stonking' }}
 # Oldest first. tasks/main.yml refuses to write sources for a release older
 # than the one a host already runs, which apt cannot downgrade to.
@@ -65,7 +65,7 @@ sources_ubuntu_pockets:
 # Note the "ubuntu" repo cannot be listed here - dropping it would leave the
 # host with no archive at all. To keep the archive but refuse its "-proposed"
 # pre-release pocket, narrow sources_ubuntu_pockets for that host.
-vdi_skip_repos:
+sources_vdi_skip_repos:
   - "forgejo"        # Bob's own packages: nothing any distribution has reviewed
   - "github-desktop"
   - "libreoffice-frexh"
@@ -84,7 +84,7 @@ vdi_skip_repos:
 # a repo skipped above need listing: libreoffice, pipewire, tlp, obs-studio and
 # friends are in the Ubuntu archive too, so dropping their PPA just pins them
 # back to the distribution build rather than removing the software.
-vdi_skip_packages:
+sources_vdi_skip_packages:
   - "fnm"              # only the forgejo registry carries it
   - "helm"             # only the forgejo registry carries it
   - "steam-launcher"   # repo.steampowered.com, "beta stable" suite
@@ -166,7 +166,7 @@ sources_apt_auth: {}
 # Repos that are unusable without a sources_apt_auth entry of the same name:
 # their metadata is public, but every package download needs the credentials,
 # so a host whose vault lacks the entry would 401 on each install or upgrade
-# from the repo. tasks/main.yml leaves such a repo out of filtered_repos
+# from the repo. tasks/main.yml leaves such a repo out of sources_filtered_repos
 # entirely - no .sources file is written, and the unmanaged-sources cleanup
 # removes one written by an earlier run that still had the credentials.
 sources_auth_required_repos:

@@ -12,10 +12,10 @@
   ansible.builtin.command:
     cmd: "dpkg --add-architecture i386"
   when: "'i386' not in sources_foreign_arches.stdout_lines"
-# The "vdi" profile adds its curated list to whatever skip_repos/skip_packages
-# already hold, so an explicit -e "skip_repos=[...]" still applies on top of a
+# The "vdi" profile adds its curated list to whatever sources_skip_repos/sources_skip_packages
+# already hold, so an explicit -e "sources_skip_repos=[...]" still applies on top of a
 # profile rather than being replaced by it. (The previous form assigned
-# skip_repos from skip_repos, which cannot resolve: set_fact may not read the
+# sources_skip_repos from sources_skip_repos, which cannot resolve: set_fact may not read the
 # variable it is defining.)
 # The credentials check: a repo in sources_auth_required_repos whose entry is
 # missing from the vault's sources_apt_auth must not be installed at all -
@@ -27,14 +27,14 @@
 - name: "Determine repositories and packages to skip based on profile and credentials"
   ansible.builtin.set_fact:
     sources_skip_packages: >-
-      {{ (skip_packages +
-          (vdi_skip_packages if environment_profile == 'vdi' else []) +
+      {{ (sources_skip_packages +
+          (sources_vdi_skip_packages if sources_environment_profile == 'vdi' else []) +
           (missing_auth_repos | select('in', sources_auth_required_packages)
            | map('extract', sources_auth_required_packages) | flatten))
          | unique }}
     sources_skip_repos: >-
-      {{ (skip_repos +
-          (vdi_skip_repos if environment_profile == 'vdi' else []) +
+      {{ (sources_skip_repos +
+          (sources_vdi_skip_repos if sources_environment_profile == 'vdi' else []) +
           missing_auth_repos) | unique }}
   vars:
     missing_auth_repos: >-
@@ -75,7 +75,7 @@
 
 - name: "Filter repositories based on environment profile"
   ansible.builtin.set_fact:
-    filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', sources_skip_repos) | list | items2dict }}"
+    sources_filtered_repos: "{{ repos | dict2items | rejectattr('key', 'in', sources_skip_repos) | list | items2dict }}"
   vars:
     repos: "{{ sources_repos.common | combine(\
       sources_repos.desktop if bootstrap_gui | bool else {}\
@@ -88,7 +88,7 @@
     owner: "root"
     group: "root"
     mode: "u=rw,g=r,o=r"
-  loop: "{{ filtered_repos | dict2items }}"
+  loop: "{{ sources_filtered_repos | dict2items }}"
 
 # Before the first update_cache below: a repo that authenticates downloads
 # (griffo) returns 401 on every fetch until its credentials are in place.
@@ -110,7 +110,7 @@
   ansible.builtin.shell:
     cmd: |
       set -e
-      managed_repos="{{ filtered_repos.keys() | list | join(' ') }}"
+      managed_repos="{{ sources_filtered_repos.keys() | list | join(' ') }}"
       for file in /etc/apt/sources.list.d/*.sources; do
         # An unmatched glob expands to the pattern itself; without this the
         # literal "*" would be reported as a removal on a host with no
@@ -210,8 +210,8 @@
     dpkg-divert --local
     --divert /etc/apt/sources.list.distrib/1password.sources
     /etc/apt/sources.list.d/1password.sources
-  register: divert_1password_result
-  changed_when: "'Adding' in divert_1password_result.stdout"
+  register: sources_divert_1password_result
+  changed_when: "'Adding' in sources_divert_1password_result.stdout"
 - name: "Remove obsolete sources files that conflict with managed repos"
   ansible.builtin.file:
     path: "/etc/apt/sources.list.d/{{ item }}"
@@ -232,7 +232,7 @@
 # visible error to whichever later task first touched a missing package (the
 # disabled-services one, usually), far from the apt message that explains it.
 # A package that is legitimately absent on some host or release belongs in
-# skip_packages or sources_auth_required_packages, not in a blanket ignore.
+# sources_skip_packages or sources_auth_required_packages, not in a blanket ignore.
 - name: "Install new packages"
   ansible.builtin.apt:
     auto_install_module_deps: true
@@ -244,7 +244,7 @@
   tags:
     - "install_optional_packages"
   vars:
-    vdi_extra_packages: "{{ ['1password-cli'] if environment_profile == 'vdi' else [] }}"
+    vdi_extra_packages: "{{ ['1password-cli'] if sources_environment_profile == 'vdi' else [] }}"
     all_packages: >-
       {{ sources_packages.common + extra + vdi_extra_packages
          + [sources_mail_transport_agent] }}
@@ -267,7 +267,7 @@
   ansible.builtin.include_tasks: "kernels.yml"
   when: not (sources_wsl | bool)
 - name: "Install the DisplayLink USB graphics driver"
-  when: bootstrap_gui | bool and environment_profile != "vdi"
+  when: bootstrap_gui | bool and sources_environment_profile != "vdi"
   tags:
     - "requires_systemd"
   block:

@@ -1,15 +1,15 @@
 ---
 - name: "Find first control plane host"
   ansible.builtin.set_fact:
-    cp_host: "{{ groups['cp'] | first }}"
+    kubernetes_cp_host: "{{ groups['cp'] | first }}"
 
 - name: "Check if node is already joined"
   ansible.builtin.stat:
     path: "/etc/kubernetes/kubelet.conf"
-  register: kubeadm_join_check
+  register: kubernetes_kubeadm_join_check
 
 - name: "Reset iptables before joining to remove old CNI and kube-proxy chains"
-  when: "not kubeadm_join_check.stat.exists"
+  when: "not kubernetes_kubeadm_join_check.stat.exists"
   ansible.builtin.shell: |
     kubeadm reset -f 2>/dev/null || true
     for table in nat mangle filter; do
@@ -26,7 +26,7 @@
     protocol: tcp
     destination_port: "6443"
     jump: DNAT
-    to_destination: "{{ hostvars[cp_host]['kubernetes_node_ip'] }}:6443"
+    to_destination: "{{ hostvars[kubernetes_cp_host]['kubernetes_node_ip'] }}:6443"
     comment: "k8s VIP redirect"
   loop:
     - "OUTPUT"
@@ -36,7 +36,7 @@
   ansible.builtin.iptables:
     table: nat
     chain: "POSTROUTING"
-    destination: "{{ hostvars[cp_host]['kubernetes_node_ip'] }}"
+    destination: "{{ hostvars[kubernetes_cp_host]['kubernetes_node_ip'] }}"
     protocol: tcp
     destination_port: "6443"
     jump: MASQUERADE
@@ -81,8 +81,8 @@
 
 - name: "Create join token on control plane"
   ansible.builtin.command: "kubeadm token create"
-  register: join_token_result
-  delegate_to: "{{ cp_host }}"
+  register: kubernetes_join_token_result
+  delegate_to: "{{ kubernetes_cp_host }}"
   changed_when: true
 
 - name: "Get CA certificate hash from control plane"
@@ -92,8 +92,8 @@
       | openssl rsa -pubin -outform der 2>/dev/null
       | openssl dgst -sha256 -hex
       | sed 's/.* //'
-  register: ca_cert_hash_result
-  delegate_to: "{{ cp_host }}"
+  register: kubernetes_ca_cert_hash_result
+  delegate_to: "{{ kubernetes_cp_host }}"
   changed_when: false
 
 - name: "Write kubeadm join config"
@@ -107,8 +107,8 @@
 - name: "Check if node is already joined"
   ansible.builtin.stat:
     path: "/etc/kubernetes/kubelet.conf"
-  register: kubeadm_join_done
+  register: kubernetes_kubeadm_join_done
 
 - name: "Join the cluster"
   ansible.builtin.command: "kubeadm join --config /etc/kubernetes/kubeadm-join.yaml"
-  when: "not kubeadm_join_done.stat.exists"
+  when: "not kubernetes_kubeadm_join_done.stat.exists"

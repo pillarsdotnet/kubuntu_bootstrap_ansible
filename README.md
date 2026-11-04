@@ -255,37 +255,37 @@ the inventory, rationale and `bootstrap_wsl_disabled_units` override.
 
 ```bash
 # Install using VDI profile (filters high-risk repos and packages)
-ansible-playbook setup.yml -e "environment_profile=vdi"
+ansible-playbook setup.yml -e "sources_environment_profile=vdi"
 
 # Standard profile (all repos/packages installed)
-ansible-playbook setup.yml -e "environment_profile=standard"
+ansible-playbook setup.yml -e "sources_environment_profile=standard"
 
 # Or explicitly set skip lists
 ansible-playbook setup.yml \
-  -e "skip_repos=[github-desktop,steam,libreoffice-frexh]" \
-  -e "skip_packages=[steam,waydroid]"
+  -e "sources_skip_repos=[github-desktop,steam,libreoffice-frexh]" \
+  -e "sources_skip_packages=[steam,waydroid]"
 ```
 
 ### Customizing filtered repositories and packages
 
 The lists live in `roles/sources/defaults/main.yml`, which **is** tracked in git:
 
-| Variable              | Default         | Purpose                                              |
-| --------------------- | --------------- | ---------------------------------------------------- |
-| `environment_profile` | `"standard"`    | Which profile to apply                               |
-| `vdi_skip_repos`      | 17 repositories | Dropped under the `vdi` profile                      |
-| `vdi_skip_packages`   | 3 packages      | Dropped under the `vdi` profile                      |
-| `skip_repos`          | `[]`            | Extra repositories to drop on this host, any profile |
-| `skip_packages`       | `[]`            | Extra packages to drop on this host, any profile     |
+| Variable                      | Default         | Purpose                                              |
+| ----------------------------- | --------------- | ---------------------------------------------------- |
+| `sources_environment_profile` | `"standard"`    | Which profile to apply                               |
+| `sources_vdi_skip_repos`      | 17 repositories | Dropped under the `vdi` profile                      |
+| `sources_vdi_skip_packages`   | 3 packages      | Dropped under the `vdi` profile                      |
+| `sources_skip_repos`          | `[]`            | Extra repositories to drop on this host, any profile |
+| `sources_skip_packages`       | `[]`            | Extra packages to drop on this host, any profile     |
 
-`skip_repos`/`skip_packages` are **added to** whatever the profile contributes, so
-`-e "environment_profile=vdi" -e "skip_repos=[steam]"` applies both. Set them per host
+`sources_skip_repos`/`sources_skip_packages` are **added to** whatever the profile contributes, so
+`-e "sources_environment_profile=vdi" -e "sources_skip_repos=[steam]"` applies both. Set them per host
 in `host_vars/<hostname>.yml`, or edit the `vdi_*` lists to change the fleet-wide
 policy. (They deliberately do _not_ live in `group_vars/all.yml`: that file is
 untracked, so anything defined only there is undefined on every other clone — which is
-what produced `'environment_profile' is undefined`.)
+what produced `'sources_environment_profile' is undefined`.)
 
-Only packages that exist _nowhere but_ a skipped repository belong in `vdi_skip_packages`.
+Only packages that exist _nowhere but_ a skipped repository belong in `sources_vdi_skip_packages`.
 `LibreOffice`, `PipeWire`, `TLP` and `OBS` are in the Ubuntu archive too, so dropping their
 `PPA` just pins them back to the distribution build rather than removing the software.
 
@@ -293,7 +293,7 @@ After updating the filter lists, re-run the playbook to regenerate the sources:
 
 ```bash
 # Re-run sources only with new filter lists
-ansible-playbook sources.yml -e "environment_profile=vdi"
+ansible-playbook sources.yml -e "sources_environment_profile=vdi"
 ```
 
 This will:

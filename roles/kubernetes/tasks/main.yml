@@ -16,11 +16,11 @@
     node-role.kubernetes.io/control-plane:NoSchedule-
   environment:
     KUBECONFIG: "/etc/kubernetes/admin.conf"
-  register: taint_result
-  changed_when: "'untainted' in taint_result.stdout"
+  register: kubernetes_taint_result
+  changed_when: "'untainted' in kubernetes_taint_result.stdout"
   failed_when:
-    - taint_result.rc != 0
-    - "'not found' not in taint_result.stderr"
+    - kubernetes_taint_result.rc != 0
+    - "'not found' not in kubernetes_taint_result.stderr"
 
 - name: "Join as worker node"
   when:

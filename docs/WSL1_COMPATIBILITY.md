@@ -20,15 +20,15 @@ When deploying to WSL-1 or VDI environments, certain `Ansible` tasks will fail b
 
 Two independent things are being decided, and they are kept separate:
 
-| Axis           | Question                                  | Driven by                                         |
-| -------------- | ----------------------------------------- | ------------------------------------------------- |
-| **Capability** | Does this kernel _support_ the operation? | Automatic WSL detection (`bootstrap_wsl_version`) |
-| **Trust**      | Do we _want_ this software here?          | `environment_profile` (`standard` / `vdi`)        |
+| Axis           | Question                                  | Driven by                                          |
+| -------------- | ----------------------------------------- | -------------------------------------------------- |
+| **Capability** | Does this kernel _support_ the operation? | Automatic WSL detection (`bootstrap_wsl_version`)  |
+| **Trust**      | Do we _want_ this software here?          | `sources_environment_profile` (`standard` / `vdi`) |
 
 A WSL-1 host cannot run `systemd` no matter what profile you pass, and a VDI that
 runs Linux natively is fully capable but may still want third-party repositories left
 out. Conflating the two meant WSL-1 skips only happened if you remembered to
-pass `-e environment_profile=vdi`, and passing that on a native VDI wrongly
+pass `-e sources_environment_profile=vdi`, and passing that on a native VDI wrongly
 disabled service management.
 
 ### 1. Capability: automatic WSL detection
@@ -53,7 +53,7 @@ Capability-dependent tasks are tagged with what they need. The vocabulary is
 declared in `roles/bootstrap/defaults/main.yml`:
 
 ```yaml
-wsl1_incompatible_tags:
+bootstrap_wsl1_incompatible_tags:
   - "requires_dbus"
   - "requires_gui"
   - "requires_netfilter"
@@ -69,7 +69,7 @@ wsl1_incompatible_tags:
 These are declared in **role defaults**, not `group_vars/all.yml`. That file is
 untracked (see README "Repository layout"), so declaring them there left a fresh
 clone with nothing defining them, and every gated task died with
-`Error while evaluating conditional: 'environment_profile' is undefined`.
+`Error while evaluating conditional: 'sources_environment_profile' is undefined`.
 
 `requires_gui` is part of the policy but no task carries it yet: GUI work is
 gated on `bootstrap_gui`, which is false unless `display-manager.service` is
@@ -84,7 +84,7 @@ inventing a parallel mechanism.
 ### 3. Conditional skipping
 
 A tagged task is skipped when a WSL-1 kernel is detected **and** its tag is in
-`wsl1_incompatible_tags`:
+`bootstrap_wsl1_incompatible_tags`:
 
 ```yaml
 - name: "Restart ssh.service"
@@ -95,7 +95,7 @@ A tagged task is skipped when a WSL-1 kernel is detected **and** its tag is in
     - "requires_systemd"
   when: >-
     not (bootstrap_wsl_version | int == 1 and
-         'requires_systemd' in wsl1_incompatible_tags)
+         'requires_systemd' in bootstrap_wsl1_incompatible_tags)
 ```
 
 This means:
@@ -146,7 +146,7 @@ Tasks:
 
 **These two tasks are different from the rest of `requires_netfilter`:** they
 are gated on `bootstrap_wsl_version | int == 0`, so they are skipped on
-**both** WSL-1 and WSL-2, not just WSL-1 via `wsl1_incompatible_tags`. WSL-2
+**both** WSL-1 and WSL-2, not just WSL-1 via `bootstrap_wsl1_incompatible_tags`. WSL-2
 doesn't ship the `ufw` executable by default (`sources_packages` installing it
 doesn't guarantee it lands before `sshd.yml` runs on every host), and Windows
 owns the network on either WSL generation regardless, so there is nothing
@@ -174,7 +174,7 @@ Handlers:
 Under either, the network interfaces are owned by Windows and there is no
 `NetworkManager` to reload. A VDI that runs Linux natively is an ordinary Linux
 host here and does get the reload — which is why this gate keys off WSL
-detection rather than off `environment_profile`.
+detection rather than off `sources_environment_profile`.
 
 **Impact:** Services configured by the playbook may not restart after configuration changes. SSH will continue running if already started before playbook execution, but changes to the SSH configuration won't take effect until the next manual restart.
 
@@ -254,7 +254,7 @@ for Azure PowerShell that is `Disable-AzContextAutosave`.
 **Tag:** `requires_dbus` — the first task in this repository to actually carry it.
 
 **Gate:** `bootstrap_wsl_version | int > 0` — runs on **both** WSL-1 and WSL-2,
-not just WSL-1 via `wsl1_incompatible_tags`. This is the inverse of every other
+not just WSL-1 via `bootstrap_wsl1_incompatible_tags`. This is the inverse of every other
 entry here: the tag marks work that _needs_ a session bus, and the gate selects
 hosts that _lack_ a display manager to set the keyring up. A native host gets
 its keyring from the desktop session and needs nothing. The block is
@@ -291,11 +291,11 @@ When you discover a task that fails in WSL-1/VDI environments:
        - "requires_netfilter" # or appropriate tag
      when: >-
        not (bootstrap_wsl_version | int == 1 and
-            '<tag>' in wsl1_incompatible_tags)
+            '<tag>' in bootstrap_wsl1_incompatible_tags)
    ```
 
    Outside `roles/bootstrap`, `bootstrap_wsl_version` and
-   `wsl1_incompatible_tags` are not in scope (role defaults do not cross role or
+   `bootstrap_wsl1_incompatible_tags` are not in scope (role defaults do not cross role or
    play boundaries), so either add them to that role's own `defaults/main.yml`
    or rely on `--skip-tags` for it.
 
@@ -303,7 +303,7 @@ When you discover a task that fails in WSL-1/VDI environments:
    incompatibility type:
 
    ```yaml
-   wsl1_incompatible_tags:
+   bootstrap_wsl1_incompatible_tags:
      - "requires_netfilter"
      - "requires_new_feature" # Your new tag
    ```
@@ -349,7 +349,7 @@ ansible <host> -m ansible.builtin.debug -a 'var=ansible_facts.kernel'
 To bypass the skip condition and test if a task still fails (for troubleshooting):
 
 ```bash
-ansible-playbook setup.yml -e "wsl1_incompatible_tags=[]"
+ansible-playbook setup.yml -e "bootstrap_wsl1_incompatible_tags=[]"
 ```
 
 This clears the incompatible tags list, allowing all tasks to run. Use only for debugging.
@@ -364,7 +364,7 @@ The reverse — forcing the WSL-1 skips on a host that is not WSL-1 — is
 As more incompatibilities are discovered, expand the tag system:
 
 ```yaml
-wsl1_incompatible_tags:
+bootstrap_wsl1_incompatible_tags:
   - "requires_dbus" # dbus system bus
   - "requires_gui" # Graphical session
   - "requires_netfilter" # Firewall, container networking
@@ -388,5 +388,5 @@ Each tag should:
 See also:
 
 - `roles/bootstrap/defaults/main.yml` — WSL detection and the incompatibility tag list
-- `roles/sources/defaults/main.yml` — `environment_profile` and the VDI repository/package skip lists
+- `roles/sources/defaults/main.yml` — `sources_environment_profile` and the VDI repository/package skip lists
 - `README.md` — Environment Profiles section for usage examples

@@ -3,10 +3,10 @@ apiVersion: kubeadm.k8s.io/v1beta3
 kind: JoinConfiguration
 discovery:
   bootstrapToken:
-    apiServerEndpoint: "{{ hostvars[cp_host]['kubernetes_node_ip'] }}:6443"
-    token: "{{ join_token_result.stdout | trim }}"
+    apiServerEndpoint: "{{ hostvars[kubernetes_cp_host]['kubernetes_node_ip'] }}:6443"
+    token: "{{ kubernetes_join_token_result.stdout | trim }}"
     caCertHashes:
-      - "sha256:{{ ca_cert_hash_result.stdout | trim }}"
+      - "sha256:{{ kubernetes_ca_cert_hash_result.stdout | trim }}"
 nodeRegistration:
   criSocket: "unix:///run/containerd/containerd.sock"
   kubeletExtraArgs:

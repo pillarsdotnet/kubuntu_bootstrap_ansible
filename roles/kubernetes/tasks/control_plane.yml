@@ -30,7 +30,7 @@
 - name: "Get installed kubeadm version"
   ansible.builtin.shell:
     cmd: "kubeadm version -o json | jq -r '.clientVersion.gitVersion'"
-  register: kubeadm_version_result
+  register: kubernetes_kubeadm_version_result
   changed_when: false
 
 - name: "Write kubeadm init config"
@@ -44,11 +44,11 @@
 - name: "Check if cluster is already initialized"
   ansible.builtin.stat:
     path: "/etc/kubernetes/admin.conf"
-  register: kubeadm_admin_conf
+  register: kubernetes_kubeadm_admin_conf
 
 - name: "Initialize the cluster"
   ansible.builtin.command: "kubeadm init --config /etc/kubernetes/kubeadm-init.yaml"
-  when: "not kubeadm_admin_conf.stat.exists"
+  when: "not kubernetes_kubeadm_admin_conf.stat.exists"
 
 - name: "Wait for API server to respond"
   ansible.builtin.wait_for:
@@ -60,8 +60,8 @@
   ansible.builtin.command: "kubectl get nodes"
   environment:
     KUBECONFIG: "/etc/kubernetes/admin.conf"
-  register: api_functional
-  until: "api_functional.rc == 0"
+  register: kubernetes_api_functional
+  until: "kubernetes_api_functional.rc == 0"
   retries: 30
   delay: 5
   changed_when: false
@@ -86,21 +86,21 @@
 - name: "Get latest Calico release version"
   ansible.builtin.uri:
     url: "https://api.github.com/repos/projectcalico/calico/releases/latest"
-  register: calico_release_result
+  register: kubernetes_calico_release_result
   changed_when: false
 
-- name: "Set calico_version fact"
+- name: "Set kubernetes_calico_version fact"
   ansible.builtin.set_fact:
-    calico_version: "{{ calico_release_result.json.tag_name }}"
+    kubernetes_calico_version: "{{ kubernetes_calico_release_result.json.tag_name }}"
 
 - name: "Apply Tigera operator manifest"
   ansible.builtin.command: >-
     kubectl apply --server-side -f
-    https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+    https://raw.githubusercontent.com/projectcalico/calico/{{ kubernetes_calico_version }}/manifests/tigera-operator.yaml
   environment:
     KUBECONFIG: "/etc/kubernetes/admin.conf"
-  register: tigera_apply_result
-  until: "tigera_apply_result.rc == 0"
+  register: kubernetes_tigera_apply_result
+  until: "kubernetes_tigera_apply_result.rc == 0"
   retries: 5
   delay: 10
   changed_when: true

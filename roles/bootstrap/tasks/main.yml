@@ -74,7 +74,7 @@
   when:
     - bootstrap_serial_consoles | length > 0
     - bootstrap_wsl_version | int == 0
-# Gated on WSL generally, not on WSL-1 via wsl1_incompatible_tags: the missing
+# Gated on WSL generally, not on WSL-1 via bootstrap_wsl1_incompatible_tags: the missing
 # piece is a display manager to create and unlock the login keyring, and
 # neither WSL generation has one. A native host - including a natively-run
 # VDI - gets its keyring from the desktop session and needs nothing here.

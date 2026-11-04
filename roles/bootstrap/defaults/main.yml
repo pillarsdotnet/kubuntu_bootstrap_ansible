@@ -96,10 +96,10 @@ bootstrap_wsl_version: >-
 # of individual tasks/handlers gate WSL-2 directly (NetworkManager reload in
 # handlers/main.yml, ufw rules in tasks/sshd.yml), since Windows owns the
 # network on both WSL generations regardless of kernel capability.
-# Override with -e "wsl1_incompatible_tags=[]" to force the tagged tasks to run.
+# Override with -e "bootstrap_wsl1_incompatible_tags=[]" to force the tagged tasks to run.
 # These names are the vocabulary; see docs/WSL1_COMPATIBILITY.md for which tasks
 # currently carry which tag.
-wsl1_incompatible_tags:
+bootstrap_wsl1_incompatible_tags:
   - "requires_dbus"
   - "requires_gui"
   - "requires_netfilter"
