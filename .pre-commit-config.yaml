@@ -5,22 +5,22 @@
 repos:
   - repo: "local"
     hooks:
-      - id: "ansible-syntax-check"
-        name: "ansible syntax check"
-        # ansible-lint parses every task file - including the ones pulled in via
-        # include_tasks - so it catches YAML/syntax/load errors that
-        # "ansible-playbook --syntax-check" silently skips for dynamic includes.
-        # "--tags formatting" gates on the formatting rules - notably
-        # jinja[invalid], which catches syntax errors in inline Jinja
-        # ({{ ... }}, when:, etc.). The fatal load-failure/syntax-check rules are
-        # unskippable and always run too, so plain syntax errors are covered
-        # regardless. The remaining pre-existing lint nits (var-naming,
-        # risky-shell-pipe, no-changed-when) carry other tags and stay out of
-        # scope. (Note: "--tags core,formatting" would wrongly suppress
-        # jinja[invalid] - an ansible-lint quirk - so pass "formatting" alone.)
+      - id: "ansible-lint"
+        name: "ansible-lint"
+        # The whole rule set, not just the formatting tags. This hook used to
+        # pass "--tags formatting" because the repository carried 38 findings
+        # the full run would have failed on: 21 var-naming[no-role-prefix], 9
+        # risky-shell-pipe, 7 no-changed-when and one command-instead-of-module.
+        # Those are fixed, so the full run gates from here and new ones cannot
+        # accumulate unseen. ansible-lint parses every task file, including the
+        # ones pulled in via include_tasks, so it still catches the load and
+        # syntax errors that "ansible-playbook --syntax-check" silently skips
+        # for dynamic includes.
+        # It runs from .venv, whose ansible-lint requirements.txt pins, so this
+        # and the Lint workflow check the same rules with the same version.
         # Force a UTF-8 locale first: Ansible aborts on a non-UTF-8 locale (e.g.
         # a stray LC_ALL=C) before parsing anything. C.UTF-8 needs no locale-gen.
-        entry: "env LC_ALL=C.UTF-8 LANG=C.UTF-8 .venv/bin/ansible-lint --tags formatting"
+        entry: "env LC_ALL=C.UTF-8 LANG=C.UTF-8 .venv/bin/ansible-lint"
         language: "system"
         types: ["yaml"]
         require_serial: true
