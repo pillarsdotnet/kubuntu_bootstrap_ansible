@@ -92,7 +92,7 @@ class FilterModule:
         # Construct the releases url from the `project` string. The scheme is
         # fixed https and the project slug comes from the playbook's own vars.
         url = f"https://api.github.com/repos/{project}/releases/latest"
-        with urlopen(url) as response:  # noqa: S310
+        with urlopen(url) as response:
             data = json.loads(response.read().decode("utf-8"))
         return data["tag_name"]
 

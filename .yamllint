@@ -3,9 +3,23 @@
 # is disabled because workflow files open with a comment block rather than
 # "---", truthy's key check because workflow files key on "on:", and the
 # length limit is 160 because the roles' comment-heavy YAML runs long and
-# ansible-lint's own yaml profile uses 160.
+# ansible-lint's own yaml profile uses 160. comments.min-spaces-from-content
+# is 1 rather than yamllint's default 2 because ansible-lint rejects any other
+# value as an incompatible custom configuration; a minimum of 1 still accepts
+# the two-space comments already in these files.
 extends: default
 rules:
+  # These five settings are what ansible-lint requires of a custom yamllint
+  # configuration; without them it refuses the file outright and disables its
+  # own fix mode.
+  braces:
+    max-spaces-inside: 1
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
   document-start: disable
   line-length:
     max: 160
