@@ -11,6 +11,8 @@
 - name: "Enable the i386 architecture for Steam's 32-bit runtime"
   ansible.builtin.command:
     cmd: "dpkg --add-architecture i386"
+  # Guarded by the architecture list above, so running at all adds it.
+  changed_when: true
   when: "'i386' not in sources_foreign_arches.stdout_lines"
 # The "vdi" profile adds its curated list to whatever sources_skip_repos/sources_skip_packages
 # already hold, so an explicit -e "sources_skip_repos=[...]" still applies on top of a
@@ -309,12 +311,15 @@
         mode: "u=rw,g=r,o=r"
         owner: "root"
         url: "{{ sources_displaylink.evdi.url }}"
+    # noqa: command-instead-of-module - this reads one member to stdout, which
+    # unarchive cannot do: it unpacks to a destination. Nothing is extracted.
     - name: "Check which EVDI module the DisplayLink payload bundles"
       ansible.builtin.shell:
         chdir: "{{ sources_displaylink.cache }}/payload-{{ sources_displaylink.version }}"
-        cmd: >-
-          tar xzOf evdi.tar.gz --wildcards '*module/dkms.conf'
-          | sed -n 's/^PACKAGE_VERSION=//p'
+        cmd: |
+          set -o pipefail
+          tar xzOf evdi.tar.gz --wildcards '*module/dkms.conf' \
+            | sed -n 's/^PACKAGE_VERSION=//p'
       changed_when: false
       register: "sources_displaylink_bundled_evdi"
     - name: "Replace the bundled EVDI module with the upstream one"
@@ -322,6 +327,7 @@
         chdir: "{{ sources_displaylink.cache }}/payload-{{ sources_displaylink.version }}"
         cmd: |
           set -eu
+          set -o pipefail
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
           mkdir "$work/bundle" "$work/upstream"
@@ -332,6 +338,9 @@
           cp -a "$work/upstream/module" "$work/bundle/module"
           tar czf evdi.tar.gz.new -C "$work/bundle" .
           mv evdi.tar.gz.new evdi.tar.gz
+      # Runs only when the bundled version differs from the pinned one, and
+      # rewrites evdi.tar.gz when it does.
+      changed_when: true
       when: sources_displaylink_bundled_evdi.stdout != sources_displaylink.evdi.version
     - name: "Check which DisplayLink version is already installed"
       ansible.builtin.command:
@@ -370,14 +379,22 @@
       ansible.builtin.shell:
         cmd: |
           set -eu
+          set -o pipefail
           for build in /lib/modules/*/build; do
             [ -d "$build" ] || continue
             kernel=$(basename "$(dirname "$build")")
-            if ! dkms status -m evdi -v {{ sources_displaylink.evdi.version }} \
-                -k "$kernel" | grep -q installed; then
-              dkms install evdi/{{ sources_displaylink.evdi.version }} -k "$kernel"
-              echo "built for $kernel"
-            fi
+            # dkms is read into a variable rather than piped into grep -q:
+            # grep exits on its first match, and the SIGPIPE that gives dkms
+            # would, under pipefail, invert this test and rebuild every time.
+            status=$(dkms status -m evdi -v {{ sources_displaylink.evdi.version }} \
+                -k "$kernel" || true)
+            case $status in
+              *installed*) ;;
+              *)
+                dkms install evdi/{{ sources_displaylink.evdi.version }} -k "$kernel"
+                echo "built for $kernel"
+                ;;
+            esac
           done
       register: "sources_displaylink_evdi_kernels"
       changed_when: "'built for' in sources_displaylink_evdi_kernels.stdout"
@@ -389,6 +406,9 @@
     - name: "Remove EVDI versions other than the pinned one from DKMS"
       ansible.builtin.command:
         cmd: "dkms remove evdi/{{ item }} --all"
+      # The loop holds only versions other than the pinned one, so each pass
+      # removes a version DKMS really has.
+      changed_when: true
       loop: >-
         {{ sources_displaylink_dkms_after.stdout_lines
            | map('regex_search', '^evdi/([^,:]+)[,:]', '\1') | select | map('first')

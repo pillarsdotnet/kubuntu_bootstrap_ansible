@@ -87,11 +87,15 @@
 
 - name: "Get CA certificate hash from control plane"
   ansible.builtin.shell:
-    cmd: >-
-      openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt
-      | openssl rsa -pubin -outform der 2>/dev/null
-      | openssl dgst -sha256 -hex
-      | sed 's/.* //'
+    # pipefail matters here beyond the lint rule: without it a failure in any
+    # openssl stage still leaves sed printing something, and the node would
+    # join with a bogus CA hash instead of failing.
+    cmd: |
+      set -o pipefail
+      openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt \
+        | openssl rsa -pubin -outform der 2>/dev/null \
+        | openssl dgst -sha256 -hex \
+        | sed 's/.* //'
   register: kubernetes_ca_cert_hash_result
   delegate_to: "{{ kubernetes_cp_host }}"
   changed_when: false
@@ -111,4 +115,6 @@
 
 - name: "Join the cluster"
   ansible.builtin.command: "kubeadm join --config /etc/kubernetes/kubeadm-join.yaml"
+  # Guarded by the kubelet.conf check above, so reaching this is the change.
+  changed_when: true
   when: "not kubernetes_kubeadm_join_done.stat.exists"

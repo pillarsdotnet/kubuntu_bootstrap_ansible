@@ -10,12 +10,16 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
+      set -o pipefail
       running=$(uname -r | sed -E 's/^([0-9]+\.[0-9]+\.[0-9]+-[0-9]+).*/\1/')
       packages=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'linux-*' \
         | awk '$1 ~ /^[ih]i/ {print $2}')
+      # The || true keeps today's behaviour under pipefail: grep exits 1 when
+      # no linux-* package carries a version, which left versions empty and
+      # purged nothing, rather than failing the play.
       versions=$(printf '%s\n' "$packages" \
         | grep -oE -- '-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+(-|$)' \
-        | sed -E 's/^-//; s/-$//' | sort -uV)
+        | sed -E 's/^-//; s/-$//' | sort -uV || true)
       keep=$( { printf '%s\n' "$versions" | tail -n 2; echo "$running"; } | sort -u)
       for version in $versions; do
         printf '%s\n' "$keep" | grep -qxF "$version" && continue
@@ -43,6 +47,7 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
+      set -o pipefail
       boot=$(bootctl --print-boot-path 2>/dev/null) || exit 0
       for entry in "$boot"/loader/entries/*.conf; do
         [ -e "$entry" ] || continue
@@ -56,4 +61,7 @@
 - name: "Remove the boot entry and ESP files of each uninstalled kernel"
   ansible.builtin.command:
     cmd: "kernel-install remove {{ item }}"
+  # The loop only holds kernels with no /boot/vmlinuz, so each pass removes
+  # an entry that is really there.
+  changed_when: true
   loop: "{{ sources_stale_kernels.stdout_lines }}"

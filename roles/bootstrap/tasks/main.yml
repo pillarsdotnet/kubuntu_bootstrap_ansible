@@ -58,7 +58,9 @@
 # LoaderInfo EFI variable systemd-boot does, so neither of those can tell.
 - name: "Check which boot loader started the host"
   ansible.builtin.shell:
-    cmd: "bootctl status 2>/dev/null | sed -n '/^Current Boot Loader:/,/^$/p'"
+    cmd: |
+      set -o pipefail
+      bootctl status 2>/dev/null | sed -n '/^Current Boot Loader:/,/^$/p'
   changed_when: false
   check_mode: false
   failed_when: false

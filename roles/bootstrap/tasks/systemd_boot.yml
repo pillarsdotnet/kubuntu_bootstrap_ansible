@@ -32,6 +32,9 @@
 - name: "Put systemd-boot on the ESP"
   ansible.builtin.command:
     cmd: "bootctl install"
+  # Only runs when bootctl said the ESP has no loader, so running at all is
+  # the change; bootctl itself reports nothing a condition could read.
+  changed_when: true
   when: bootstrap_systemd_boot_installed.rc != 0
 
 - name: "Carry GRUB's kernel options over to systemd-boot"
@@ -83,6 +86,7 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
+      set -o pipefail
       boot=$(bootctl --print-boot-path)
       for kernel in /boot/vmlinuz-*; do
         version=${kernel#/boot/vmlinuz-}
@@ -98,14 +102,24 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
+      set -o pipefail
       # Matched on the loader's filename alone, case-insensitively, because
       # the ESP is FAT and nothing normalises the spelling the firmware
       # stores: acermagic's reports \EFI\SYSTEMD\SYSTEMD-BOOTX64.EFI where
       # bootctl wrote \EFI\systemd\systemd-bootx64.efi. Matching the path as
       # written found no entry and failed the run.
-      entry=$(efibootmgr | sed -n 's|^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} .*[\\/]systemd-boot[a-z0-9]*\.efi.*|\1|Ip' | head -n1)
+      # efibootmgr is read once into a variable rather than piped: head and
+      # grep -q both exit on their first line, and under pipefail the SIGPIPE
+      # that gives efibootmgr would fail this task or invert the test below.
+      entries=$(efibootmgr)
+      matches=$(printf '%s\n' "$entries" \
+        | sed -n 's|^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} .*[\\/]systemd-boot[a-z0-9]*\.efi.*|\1|Ip')
+      # The IDs are four hex digits, so word splitting takes the first match.
+      # shellcheck disable=SC2086
+      set -- $matches
+      entry=${1:-}
       [ -n "$entry" ] || { echo "no systemd-boot firmware entry" >&2; exit 1; }
-      if efibootmgr | grep -qx "BootNext: $entry"; then exit 0; fi
+      case $entries in *"BootNext: $entry"*) exit 0 ;; esac
       efibootmgr --bootnext "$entry" >/dev/null
       echo "BootNext set to $entry"
   register: "bootstrap_bootnext"
@@ -123,6 +137,7 @@
   ansible.builtin.shell:
     cmd: |
       set -eu
+      set -o pipefail
       current=$(efibootmgr | sed -n 's/^BootCurrent: //p')
       order=$(efibootmgr | sed -n 's/^BootOrder: //p')
       [ "${order%%,*}" = "$current" ] && exit 0

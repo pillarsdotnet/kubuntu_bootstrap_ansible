@@ -29,7 +29,9 @@
 
 - name: "Get installed kubeadm version"
   ansible.builtin.shell:
-    cmd: "kubeadm version -o json | jq -r '.clientVersion.gitVersion'"
+    cmd: |
+      set -o pipefail
+      kubeadm version -o json | jq -r '.clientVersion.gitVersion'
   register: kubernetes_kubeadm_version_result
   changed_when: false
 
@@ -48,6 +50,8 @@
 
 - name: "Initialize the cluster"
   ansible.builtin.command: "kubeadm init --config /etc/kubernetes/kubeadm-init.yaml"
+  # Guarded by the admin.conf check above, so reaching this is the change.
+  changed_when: true
   when: "not kubernetes_kubeadm_admin_conf.stat.exists"
 
 - name: "Wait for API server to respond"
