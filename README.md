@@ -224,6 +224,59 @@ required".
 
 ---
 
+## Hibernation
+
+`hibernation.yml` reserves a partition for hibernation on hosts that have one:
+it comments the partition out of `/etc/fstab` so nothing else claims it, swaps
+it on just before hibernating and off again after resume, and stops
+`systemd-logind` refusing to hibernate over its memory check.
+
+Name the partition in `host_vars/<hostname>.yml`, with the output of
+`lsblk -o NAME,UUID,SIZE,TYPE` or `blkid`:
+
+```yaml
+hibernation_uuid: 1ce71583-93fb-4b91-a9fc-b3efb897fadf
+```
+
+### Opting a host out
+
+`roles/hibernation` runs only when `hibernation_uuid` holds a 36-character
+value, and `hibernation.yml` prompts for a UUID only when the variable is
+undefined. Any other non-blank value therefore does both jobs at once: it
+suppresses the prompt and skips the role. This repository spells it
+`"disabled"`:
+
+```yaml
+# No hibernation partition on this host.
+hibernation_uuid: "disabled"
+```
+
+Leaving the variable out works too, but only by accident. At a terminal the
+play stops and waits for someone to type a UUID. Where `stdin` is not
+interactive - `cron`, CI, `< /dev/null` - `ansible.builtin.pause` does not
+block: it warns `Not waiting for response to prompt as stdin is not
+interactive`, returns an empty answer, and the role skips on that. So the run
+does not hang, but it either asks a question with no answer or leans on a
+warning to get past it. Saying `"disabled"` once states the intent instead.
+
+For a one-off run the same value works on the command line, though an extra
+variable applies to every host in that run, hibernating ones included:
+
+```bash
+ansible-playbook setup.yml -e hibernation_uuid=disabled
+```
+
+Do **not** set the variable to an empty value. `hibernation_uuid:` with nothing
+after the colon is `null` rather than a string, and the length test fails the
+play outright:
+
+```text
+A 'when' expression failed: The filter plugin 'ansible.builtin.length' failed:
+object of type 'NoneType' has no len()
+```
+
+---
+
 ## Environment Profiles: VDI and High-Risk Deployments
 
 For VDI environments or systems where supply chain security is a concern, you can filter

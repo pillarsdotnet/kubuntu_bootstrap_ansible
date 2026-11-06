@@ -4,6 +4,9 @@
   gather_facts: true
   hosts: all
   pre_tasks:
+    # Only when the variable is unset. A host that cannot hibernate sets
+    # hibernation_uuid to a non-UUID value such as "disabled" to skip both the
+    # prompt and the role; see README.md, "Opting a host out".
     - name: "Prompt for the hibernation partition"
       ansible.builtin.pause:
         prompt: "Enter the UUID of the hibernation partition:"

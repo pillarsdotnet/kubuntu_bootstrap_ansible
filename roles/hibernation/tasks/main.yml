@@ -1,4 +1,10 @@
 ---
+# The length test is also the documented opt-out (see README.md, "Opting a
+# host out"): a host with no hibernation partition sets hibernation_uuid to a
+# non-blank non-UUID value such as "disabled", which both skips this role and
+# keeps hibernation.yml from prompting for a UUID it would never use. Set the
+# variable to something, not nothing - an empty value is null, and the length
+# filter fails the play on it.
 - name: "Exclusively reserve the hibernation_uuid partition for hibernation"
   when: hibernation_uuid is defined and hibernation_uuid | length == 36
   block:
