@@ -126,6 +126,19 @@
           # the persistent zellij session "main", creating it if needed, so a new foot
           # window resumes where the last one left off.
           shell=/bin/bash -c "for f in ~/.zellij.d/*.sh; do . $f; done; exec /usr/bin/zellij attach --create main"
+
+          # Emacs undo in a terminal pane is the single byte 0x1f, but zellij asks foot
+          # for the kitty keyboard protocol (it emits CSI > 1 u), so Ctrl+Shift+- reaches
+          # it as "CSI 45;6u" -- base key "-" with the ctrl+shift modifier -- and zellij
+          # 0.45.1 re-encodes that for the pane as a bare "-", losing the control
+          # modifier, so emacs never sees undo. Measured 2026-11-08: Ctrl+/ ("CSI 47;5u")
+          # and a legacy 0x1f both survive the trip intact, so only the "-" key is
+          # affected. Emit the byte ourselves and bypass the protocol for this one chord.
+          # All three spellings are bound because foot may resolve it to either the
+          # unshifted "minus" or the shifted "underscore" keysym. 0x1f is also readline's
+          # undo, so this is right in a shell pane too.
+          [text-bindings]
+          \x1f=Control+Shift+minus Control+underscore Control+Shift+underscore
         dest: "/home/{{ terminal_user }}/.config/foot/foot.ini"
         owner: "{{ terminal_user }}"
         group: "{{ terminal_user }}"

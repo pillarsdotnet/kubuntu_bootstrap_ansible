@@ -150,6 +150,18 @@ keybinds clear-defaults=true {
     shared_except "locked" "scroll" "search" "tmux" {
         bind "Ctrl z" { SwitchToMode "tmux"; }
     }
+    // Emacs undo (C-_) in a terminal pane is the single byte 0x1f. foot
+    // negotiates the kitty keyboard protocol with zellij (zellij asks for
+    // CSI > 1 u), so Ctrl+Shift+- arrives as "CSI 45;6u" -- base key "-" with
+    // the ctrl+shift modifier. Measured on zellij 0.45.1: that sequence is
+    // re-encoded for the pane as a bare "-", losing the control modifier, so
+    // emacs never sees undo. Ctrl+/ ("CSI 47;5u") is translated correctly to
+    // 0x1f, as is a legacy 0x1f, so only the "-" key is affected. Write the
+    // byte ourselves instead of letting zellij encode it. 0x1f is also
+    // readline's undo, so this is right in a shell pane too.
+    shared_except "locked" {
+        bind "Ctrl Shift -" { Write 31; }
+    }
     shared_except "normal" "locked" "entersearch" {
         bind "enter" { SwitchToMode "normal"; }
     }
