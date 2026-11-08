@@ -105,6 +105,42 @@ sources_obsolete:
   - "slack-jessie.sources"
   - "wireplumber-upstream.sources"
 
+# Packages purged before the install below, because apt cannot resolve them
+# away by itself. Each one owns a file under /usr/lib/android-sdk/platform-tools
+# that google-android-platform-tools-installer needs that directory free of:
+# its postinst runs the packaged Makefile, which prints "already exists" and
+# exits 1 when the directory is still there, failing the whole apt transaction.
+#
+# The installer's Conflicts covers adb, android-sdk-platform-tools,
+# android-sdk-platform-tools-common, etc1tool, fastboot and hprof-conv, so apt
+# would remove those on its own - but *not* dmtracedump, which is missing from
+# that Conflicts (a packaging bug in google-android-installers, still unfiled).
+# dmtracedump alone keeps the directory alive and breaks the install, so it is
+# purged here along with the rest, leaving no dependence on how dpkg orders
+# removals against the new package's postinst inside one transaction.
+#
+# Purging dmtracedump also takes android-sdk-platform-tools with it (its only
+# reverse dependency) and android-sdk in turn, which is why android-sdk is no
+# longer in the desktop list: it cannot coexist with the installer. That gives
+# up the SDK build tools (aapt, apksigner, zipalign, proguard); nothing else
+# installed depends on android-sdk. Reinstate it only by dropping the installer
+# and accepting Ubuntu's adb again.
+#
+# Why bother: Ubuntu's adb 34.0.5 has a use-after-free that crashes the adb
+# server whenever a phone rejects the TLS handshake, which camera-sign's
+# 30-second reconnect loop triggers every 20-40 minutes. Fixed upstream; the
+# installer's 37.0.1 survives the same churn.
+# https://bugs.launchpad.net/ubuntu/+source/android-platform-tools/+bug/2172431
+sources_purge_packages:
+  - "adb"
+  - "android-sdk"
+  - "android-sdk-platform-tools"
+  - "android-sdk-platform-tools-common"
+  - "dmtracedump"
+  - "etc1tool"
+  - "fastboot"
+  - "hprof-conv"
+
 # DisplayLink USB graphics, for Targus/Synaptics docks that drive HDMI over USB
 # rather than DP alt-mode. Ships only as a proprietary self-extracting installer
 # from Synaptics - there is no apt repo for it, and the "install with apt?"
@@ -851,10 +887,8 @@ sources_packages:
     - "emacs-nox"
   desktop:
     - "acm"
-    - "adb"
     - "alsa-topology-conf"
     - "alsa-ucm-conf"
-    - "android-sdk"
     - "antimicro"
     - "apparmor-notify"
     - "appmenu-gtk3-module"
@@ -885,7 +919,6 @@ sources_packages:
     - "emu8051"
     - "epstool"
     - "extra-xdg-menus"
-    - "fastboot"
     - "fbterm"
     - "ffmpeg"
     - "ffmpegthumbs"
@@ -1123,6 +1156,7 @@ sources_packages:
     - "gnucap-default-plugins0"
     - "gnuplot-qt"
     - "go-mtpfs"
+    - "google-android-platform-tools-installer"
     - "google-chrome-canary"
     - "gpsim"
     - "gpu-screen-recorder"

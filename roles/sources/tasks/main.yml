@@ -42,6 +42,14 @@
     missing_auth_repos: >-
       {{ sources_auth_required_repos | reject('in', sources_apt_auth) | list }}
 
+# After the skip list is final above: the "vdi" profile and a missing
+# credential both add to sources_skip_packages, and an installer skipped that
+# way must not have Ubuntu's adb purged out from under it.
+- name: "Decide whether the Android platform-tools installer is wanted here"
+  ansible.builtin.set_fact:
+    sources_install_android_platform_tools: >-
+      {{ bootstrap_gui | bool and
+         "google-android-platform-tools-installer" not in sources_skip_packages }}
 # Check both groups, not just the ones this host uses, so a typo in a desktop
 # repo fails on a server run too rather than waiting for the next desktop.
 - name: "Check that every repository uses only keys the template reads"
@@ -228,6 +236,35 @@
     upgrade: "full"
   tags:
     - "requires_systemd"
+# Both tasks below run before "Install new packages", and only where that
+# task will actually install the installer: on a headless host, or one that
+# skips it, purging Ubuntu's adb would leave no adb at all.
+#
+# The installer's postinst downloads platform-tools from a mirror chosen by a
+# high-priority debconf question. Under the apt module's noninteractive
+# frontend that question would take its own default unprompted; preseeding it
+# says which mirror we rely on rather than leaving it to the package, and
+# keeps the run from stalling if the default is ever dropped.
+- name: "Preseed the Android platform-tools download mirror"
+  ansible.builtin.debconf:
+    name: "google-android-platform-tools-installer"
+    question: "google-android-installers/mirrorselector"
+    value: "https://dl.google.com/android/repository"
+    vtype: "select"
+  when: "sources_install_android_platform_tools"
+  tags:
+    - "install_optional_packages"
+# See sources_purge_packages in defaults/main.yml for why apt cannot do this
+# as part of the install transaction.
+- name: "Purge the Ubuntu android packages the platform-tools installer replaces"
+  ansible.builtin.apt:
+    autoremove: true
+    name: "{{ sources_purge_packages }}"
+    purge: true
+    state: "absent"
+  when: "sources_install_android_platform_tools"
+  tags:
+    - "install_optional_packages"
 # No ignore_errors here, deliberately. The module runs one all-or-nothing
 # apt transaction, so any failure - a package with no candidate, a solver
 # conflict, a 401 - means *nothing* was installed; ignoring it just moved the
