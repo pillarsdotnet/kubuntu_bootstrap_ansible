@@ -853,6 +853,13 @@ sources_packages:
     - "tcpdump"
     - "tcptraceroute"
     - "tdb-tools"
+    # Not "tea": that is an unrelated GTK text editor that owns the name in the
+    # archive. The Gitea/Forgejo CLI is tea-cli, and it installs as
+    # /usr/bin/tea-cli so the two can coexist. Stonking carries 0.11.1 against
+    # upstream's 0.16.0; the Forgejo API is Gitea-compatible, so repo, release
+    # and issue commands work, but script against the API with curl instead
+    # where a workflow depends on it.
+    - "tea-cli"
     - "telnet"
     - "terraform"
     - "tio"
