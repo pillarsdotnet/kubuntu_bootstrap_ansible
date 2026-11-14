@@ -1,0 +1,9 @@
+---
+# Hosts running saned, for the SANE net backend. Empty means "this host has no
+# networked scanner", and the net backend configuration is left alone.
+#
+# Set this per host in host_vars/<hostname>.yml, which git excludes: a scanner
+# address is site wiring, not fleet policy, and a wrong one does not fail fast.
+# The net backend blocks on TCP connect, so a stale address hangs every SANE
+# client on the machine rather than reporting an error.
+printing_sane_net_hosts: []

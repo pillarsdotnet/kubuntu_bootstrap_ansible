@@ -277,6 +277,37 @@ object of type 'NoneType' has no len()
 
 ---
 
+## Networked scanners
+
+`roles/printing` points the `SANE` `net` backend at hosts running `saned`, so
+`skanpage`, `skanlite` and anything else built on `SANE` find a scanner that is
+physically attached to another machine. Name those hosts in
+`host_vars/<hostname>.yml`, which `git` excludes:
+
+```yaml
+printing_sane_net_hosts: ["10.0.0.2"]
+```
+
+The role writes `/etc/sane.d/net.conf` and makes sure `net` is enabled in
+`/etc/sane.d/dll.conf`. The default is an empty list, and the role then leaves
+both files alone, so hosts with no networked scanner need no entry.
+
+Keep the address current. The `net` backend blocks on `TCP` connect rather than
+reporting an error, so an address that no longer answers hangs every `SANE`
+client on the machine at startup with no message. A scanner is also remembered
+a second time, per user, in `~/.local/state/skanpagestaterc` and
+`~/.local/state/skanlitestaterc` as a full device name with the address embedded:
+
+```ini
+[general]
+deviceName=net:10.0.0.2:airscan:e0:EPSON ET-2980 Series (USB)
+```
+
+Those files are outside this repository's remit. A client that still hangs
+after `net.conf` is correct is opening the remembered device, so fix the
+address there too, in both the `deviceName` and the `[Options For ...]` group
+headers that carry the per-device settings.
+
 ## Environment Profiles: VDI and High-Risk Deployments
 
 For VDI environments or systems where supply chain security is a concern, you can filter

@@ -99,3 +99,28 @@
     state: "started"
   tags:
     - "requires_systemd"
+
+- name: "Configure the SANE net backend for networked scanners"
+  when: printing_sane_net_hosts | length > 0
+  block:
+    - name: "Enable the SANE net backend"
+      ansible.builtin.lineinfile:
+        path: "/etc/sane.d/dll.conf"
+        regexp: "^\\s*#?\\s*net\\s*$"
+        line: "net"
+        state: "present"
+        owner: "root"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+
+    - name: "Deploy SANE net.conf"
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (roles/printing). Hosts running saned.
+          {% for scanner_host in printing_sane_net_hosts %}
+          {{ scanner_host }}
+          {% endfor %}
+        dest: "/etc/sane.d/net.conf"
+        owner: "root"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
