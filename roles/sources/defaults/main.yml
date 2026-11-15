@@ -573,6 +573,13 @@ sources_packages:
     - "bpftool"
     - "bpftrace"
     - "bup"
+    # Compiler caches, both wired to a shared store on homelab so this host and
+    # the CI runner stop recompiling the same objects. ccache fronts gcc/clang
+    # for the KOReader Android build via CCACHE_REMOTE_STORAGE over NFS;
+    # sccache fronts rustc and host C/C++ via SCCACHE_WEBDAV_ENDPOINT, because
+    # sccache has no shared-directory backend and its local cache is not built
+    # for two hosts writing one index. Both are set in ~/.zellij.d/0_export.sh.
+    - "ccache"
     - "clinfo"
     - "cmark"
     - "command-not-found"
@@ -841,6 +848,7 @@ sources_packages:
     - "ruby-sdbm"
     - "ruff"
     - "rumdl"
+    - "sccache"          # see the ccache entry above
     - "schedtool"
     - "slay"
     - "smbclient"
