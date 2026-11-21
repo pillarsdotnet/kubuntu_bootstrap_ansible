@@ -1,0 +1,129 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Sample the sensors that matter to an unexplained hard reset and append them
+# to a history file, durably.
+#
+# Durability is the whole point. The reset this exists for takes power away
+# without warning, so a sample that is only in the page cache is a sample
+# lost: Linux holds dirty pages for up to vm.dirty_expire_centisecs, 30
+# seconds by default. Each line is therefore followed by fdatasync on the
+# file, which is what `sync --data` does, so a completed sample has reached
+# the disk before the next one is taken. The cost is one small synchronous
+# write per interval.
+#
+# What is sampled, and why it is not already covered elsewhere:
+#
+#   Package and core temperature, fan tachometers, the VRM diode and the PCH
+#   - none of which sysstat records. The fan and VRM readings exist at all
+#   only because nct6683 is forced onto this board's NCT6687D.
+#
+#   RAPL energy, converted to watts across the interval. Its sysfs counter is
+#   mode 0400 root-only, because a readable energy counter is a power
+#   side-channel, so nothing running unprivileged can see it.
+#
+#   The CPU throttle counters, which say *why* a package throttled: a rising
+#   core count is the die getting hot, while package events with no core
+#   events mean something off-die is asserting PROCHOT.
+#
+# A second argument, if given, is a node-exporter textfile-collector
+# directory; the same sample is published there for ad-hoc inspection with
+# curl. That file is written and renamed, never appended, because
+# node-exporter reads the directory on its own schedule.
+set -euo pipefail
+
+log="${1:?usage: $0 <history-file> [textfile-collector-dir]}"
+textfile_dir="${2:-}"
+state="/run/diagnostics-sample.state"
+
+# `sensors -u` groups subfeatures under a feature label, and feature labels
+# under a chip, by indentation:
+#
+#   coretemp-isa-0000          <- chip: column 0, no trailing colon
+#   Adapter: ISA adapter
+#   Package id 0:              <- feature label: column 0, trailing colon
+#     temp1_input: 52.000      <- subfeature: indented
+#
+# Everything below scopes its read to one chip, because temp1_input exists on
+# nearly every chip and an unscoped match picks whichever sorted first.
+chip_scope='
+  /^[^[:space:]]/ && $0 !~ /:$/ && $1 != "Adapter:" { chip = $0; next }
+  /^[^[:space:]].*:$/ { label = $0; sub(/:$/, "", label); gsub(/[ \t]+/, "_", label); next }
+'
+
+now_epoch="$(date +%s.%N)"
+sensors_out="$(mktemp)"
+trap 'rm -f "$sensors_out"' EXIT
+sensors -u 2>/dev/null > "$sensors_out" || true
+
+pkg="$(awk "$chip_scope"'
+  chip == "coretemp-isa-0000" && label == "Package_id_0" && $1 == "temp1_input:" {
+    printf "%.1f", $2; found = 1; exit
+  }
+  END { if (!found) print "NA" }
+' "$sensors_out")"
+
+hottest="$(awk "$chip_scope"'
+  chip == "coretemp-isa-0000" && $1 ~ /_input:$/ { if ($2 + 0 > m) m = $2 + 0 }
+  END { if (m > 0) printf "%.1f", m; else print "NA" }
+' "$sensors_out")"
+
+# Fan tachometers and the board thermistors, both from the Super I/O chip.
+# Labels are carried through so "PCH_CHIP" and "Diode_0_(curr)" stay
+# identifiable rather than becoming anonymous temp numbers.
+fans="$(awk "$chip_scope"'
+  chip ~ /^nct668[0-9]/ && $1 ~ /^fan[0-9]+_input:$/ {
+    f = $1; sub(/_input:$/, "", f); printf "%s=%.0f ", f, $2
+  }
+  chip ~ /^nct668[0-9]/ && $1 ~ /^temp[0-9]+_input:$/ { printf "%s=%.1f ", label, $2 }
+' "$sensors_out")"
+
+energy_uj="NA"
+[ -r /sys/class/powercap/intel-rapl:0/energy_uj ] &&
+  energy_uj="$(cat /sys/class/powercap/intel-rapl:0/energy_uj)"
+
+# Watts over the elapsed interval, from the previous sample's counter. The
+# counter wraps, so a negative delta is reported as NA rather than a spike.
+watts="NA"
+if [ -r "$state" ] && [ "$energy_uj" != "NA" ]; then
+  # shellcheck disable=SC2162
+  read prev_e prev_t < "$state" || true
+  watts="$(awk -v e="$energy_uj" -v p="${prev_e:-}" -v t="$now_epoch" -v q="${prev_t:-}" \
+    'BEGIN {
+       if (p == "" || q == "") { print "NA"; exit }
+       d = e - p; s = t - q
+       if (d < 0 || s <= 0) { print "NA"; exit }
+       printf "%.1f", (d / 1000000) / s
+     }')"
+fi
+printf '%s %s\n' "$energy_uj" "$now_epoch" > "$state"
+
+core_thr="$(cat /sys/devices/system/cpu/cpu0/thermal_throttle/core_throttle_count 2>/dev/null || echo NA)"
+pkg_thr="$(cat /sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count 2>/dev/null || echo NA)"
+read -r load1 load5 _ < /proc/loadavg
+
+# Appended as one line, then forced to disk. ISO-8601 with milliseconds, so
+# the last sample can be lined up against the journal and against sar.
+printf '%s pkg=%s hottest=%s watts=%s %score_thr=%s pkg_thr=%s load=%s/%s\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+  "$pkg" "$hottest" "$watts" "$fans" "$core_thr" "$pkg_thr" "$load1" "$load5" \
+  >> "$log"
+sync --data "$log"
+
+if [ -n "$textfile_dir" ] && [ -d "$textfile_dir" ]; then
+  out="$textfile_dir/diagnostics.prom"
+  tmp="$(mktemp "$out.XXXXXX")"
+  {
+    echo "# HELP node_cpu_core_throttle_total Core thermal throttle events since boot."
+    echo "# TYPE node_cpu_core_throttle_total counter"
+    [ "$core_thr" != "NA" ] && echo "node_cpu_core_throttle_total{cpu=\"0\"} $core_thr"
+    echo "# HELP node_cpu_package_throttle_total Package throttle events since boot."
+    echo "# TYPE node_cpu_package_throttle_total counter"
+    [ "$pkg_thr" != "NA" ] && echo "node_cpu_package_throttle_total{cpu=\"0\"} $pkg_thr"
+    echo "# HELP node_rapl_package_watts Package power over the last sample interval."
+    echo "# TYPE node_rapl_package_watts gauge"
+    [ "$watts" != "NA" ] && echo "node_rapl_package_watts $watts"
+  } > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$out"
+fi

@@ -19,10 +19,10 @@
     name: "prometheus-node-exporter"
     state: "restarted"
 
-- name: "Restart the extra-metrics sampler"
+- name: "Restart the sampler"
   ansible.builtin.systemd_service:
     daemon_reload: true
-    name: "node-exporter-extra-metrics.timer"
+    name: "diagnostics-sample.timer"
     state: "restarted"
 
 # Changing /etc/kernel/cmdline has no effect until the loader entries are

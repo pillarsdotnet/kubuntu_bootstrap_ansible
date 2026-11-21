@@ -142,49 +142,49 @@
         path: "{{ diagnostics_node_exporter_textfile_dir }}"
         state: "directory"
 
-    - name: "Install the extra-metrics exporter"
+    - name: "Install the sampler"
       ansible.builtin.copy:
-        dest: "/usr/local/sbin/node-exporter-extra-metrics"
+        dest: "/usr/local/sbin/diagnostics-sample"
         group: "root"
         mode: "u=rwx,g=rx,o=rx"
         owner: "root"
-        src: "node-exporter-extra-metrics"
-      notify: "Restart the extra-metrics sampler"
+        src: "diagnostics-sample"
+      notify: "Restart the sampler"
 
-    - name: "Run the extra-metrics exporter as a unit"
+    - name: "Run the sampler as a unit"
       ansible.builtin.copy:
         content: |
           # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
           [Unit]
-          Description=Export metrics node-exporter cannot collect itself
+          Description=Sample temperatures, power and throttle counters durably
           [Service]
           Type=oneshot
-          ExecStart=/usr/local/sbin/node-exporter-extra-metrics {{ diagnostics_node_exporter_textfile_dir }}
-        dest: "/etc/systemd/system/node-exporter-extra-metrics.service"
+          ExecStart=/usr/local/sbin/diagnostics-sample {{ diagnostics_sample_log }} {{ diagnostics_node_exporter_textfile_dir }}
+        dest: "/etc/systemd/system/diagnostics-sample.service"
         group: "root"
         mode: "u=rw,g=r,o=r"
         owner: "root"
-      notify: "Restart the extra-metrics sampler"
+      notify: "Restart the sampler"
 
-    - name: "Schedule the extra-metrics exporter"
+    - name: "Schedule the sampler"
       ansible.builtin.copy:
         content: |
           # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
           [Unit]
           Description=Sample the extra metrics
           [Timer]
-          OnBootSec={{ diagnostics_extra_metrics_interval }}
-          OnUnitActiveSec={{ diagnostics_extra_metrics_interval }}
+          OnBootSec={{ diagnostics_sample_interval }}
+          OnUnitActiveSec={{ diagnostics_sample_interval }}
           AccuracySec=1s
           [Install]
           WantedBy=timers.target
-        dest: "/etc/systemd/system/node-exporter-extra-metrics.timer"
+        dest: "/etc/systemd/system/diagnostics-sample.timer"
         group: "root"
         mode: "u=rw,g=r,o=r"
         owner: "root"
-      notify: "Restart the extra-metrics sampler"
+      notify: "Restart the sampler"
 
-    - name: "Enable node-exporter and the extra-metrics sampler"
+    - name: "Enable node-exporter and the sampler"
       ansible.builtin.systemd_service:
         daemon_reload: true
         enabled: true
@@ -192,7 +192,7 @@
         state: "started"
       loop:
         - "prometheus-node-exporter"
-        - "node-exporter-extra-metrics.timer"
+        - "diagnostics-sample.timer"
 
     # The only task here that touches boot configuration, and the only one
     # that needs a reboot before it does anything. /etc/kernel/cmdline is the
@@ -221,6 +221,47 @@
           # Left alone if a crashkernel= is already set, by this role or by
           # hand, so a value chosen deliberately is never overwritten.
           when: "'crashkernel=' not in diagnostics_old_text"
+
+    # sar's own samples are not synced by sadc, so shortening the kernel's
+    # writeback delay is what makes them durable. The sampler fsyncs itself
+    # and does not rely on this.
+    - name: "Shorten the dirty-page writeback delay"
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        # reload writes it into the file and applies it now; sysctl_set makes
+        # the module verify the running value rather than trusting the write.
+        reload: true
+        sysctl_file: "/etc/sysctl.d/99-diagnostics.conf"
+        sysctl_set: true
+        value: "{{ item.value }}"
+      loop:
+        - key: "vm.dirty_expire_centisecs"
+          value: "{{ diagnostics_dirty_expire_centisecs }}"
+        - key: "vm.dirty_writeback_centisecs"
+          value: "{{ diagnostics_dirty_writeback_centisecs }}"
+
+    - name: "Rotate the sampler history"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          {{ diagnostics_sample_log }} {
+            # /var/log is root:syslog and group-writable, which logrotate
+            # refuses to rotate into without being told whose privileges to
+            # drop to. Without this it skips the file entirely and says so
+            # only under -d.
+            su root syslog
+            daily
+            rotate {{ diagnostics_sample_log_keep }}
+            compress
+            delaycompress
+            missingok
+            notifempty
+            create 0640 root adm
+          }
+        dest: "/etc/logrotate.d/diagnostics-sample"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
 
     # A sysfs write does not survive a reboot, so the ceiling is reapplied by
     # a unit rather than set once by hand. Oneshot with RemainAfterExit, so

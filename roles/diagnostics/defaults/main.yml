@@ -61,7 +61,7 @@ diagnostics_sysstat_history: 7
 
 # How long journald may leave the persistent journal unsynced. The default
 # is 5m, which is exactly the window that was lost. Costs more disk writes.
-diagnostics_journald_sync: "5s"
+diagnostics_journald_sync: "1s"
 
 # Memory reserved at boot for the crash-dump kernel. This is the only
 # setting here that touches boot configuration: it is appended to
@@ -85,12 +85,23 @@ diagnostics_node_exporter_listen: "127.0.0.1:9100"
 # node-exporter does not export itself.
 diagnostics_node_exporter_textfile_dir: "/var/lib/prometheus/node-exporter"
 
-# How often the extra-metrics exporter samples into the textfile collector.
-# It publishes the two things node-exporter cannot: the CPU throttle
-# counters, which distinguish a die that got hot from a board asserting
-# PROCHOT at it, and the RAPL energy counters, whose sysfs files are 0400
-# root-only because a readable energy counter is a power side-channel.
-diagnostics_extra_metrics_interval: "5s"
+# How often the sampler records temperatures, fan speeds, package power and
+# the throttle counters - none of which sysstat collects, and the RAPL
+# counter among them unreadable except as root.
+#
+# Each sample is fdatasync'd before the next is taken, so the history is
+# durable rather than merely frequent: the reset this exists for takes power
+# away without warning, and an unsynced sample is a lost one.
+diagnostics_sample_interval: "1s"
+diagnostics_sample_log: "/var/log/diagnostics-sample.log"
+diagnostics_sample_log_keep: 7
+
+# How long the kernel may hold a dirty page before writing it back. The
+# default is 3000 (30 s), which is how much of sysstat's history a power cut
+# can take with it - sadc closes each sample but never fsyncs. The sampler
+# above syncs itself and does not depend on this; sar does.
+diagnostics_dirty_expire_centisecs: 100
+diagnostics_dirty_writeback_centisecs: 100
 
 # Sustained package power ceiling in watts, reapplied at every boot because
 # a sysfs write does not survive one. 0 leaves the firmware's value alone.
