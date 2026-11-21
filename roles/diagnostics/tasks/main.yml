@@ -334,7 +334,14 @@
         key_options: "restrict,port-forwarding"
         user: "{{ ansible_user | default('root') }}"
       loop: "{{ ansible_play_hosts | reject('eq', inventory_hostname) | list }}"
-      when: "hostvars[item].diagnostics_tunnel_keypair is defined"
+      # Not "is defined": a task that was skipped still registers its
+      # variable, as a dict carrying skipped=true and no key material, so
+      # every host in the play looks as though it has a keypair. Test the
+      # attribute actually being read, and that the host points its tunnel
+      # here rather than at some other collector.
+      when:
+        - "hostvars[item].diagnostics_tunnel_target | default('') == inventory_hostname"
+        - "hostvars[item].diagnostics_tunnel_keypair.public_key is defined"
 
     - name: "Scrape every tunnel that lands on loopback"
       ansible.builtin.template:
