@@ -268,17 +268,21 @@ sources_preferences:
     # Managed by kubuntu_bootstrap_ansible (roles/sources).
     #
     # The microsoft-prod repo is here for powershell alone (see sources_repos).
-    # It is Microsoft's general Ubuntu 24.04 repo, carrying dotnet, SQL Server
-    # tools and much else built against noble, so refuse everything from it but
-    # powershell. Pin by release label, not by origin hostname: vscode,
+    # It is Microsoft's general Ubuntu 26.04 repo, carrying dotnet, SQL Server
+    # tools and much else built against resolute, so refuse everything from it
+    # but powershell. Pin by release label, not by origin hostname: vscode,
     # azure-cli and mdatp come from other repos on packages.microsoft.com, and
-    # a hostname pin would block those too.
+    # a hostname pin would block those too. The label is the Release file's,
+    # verbatim -- it moved with the repo, from
+    # "microsoft-ubuntu-noble-prod noble" to
+    # "microsoft-ubuntu-resolute-prod resolute", and a stale label here is a
+    # pin that silently matches nothing.
     Package: *
-    Pin: release l=microsoft-ubuntu-noble-prod noble
+    Pin: release l=microsoft-ubuntu-resolute-prod resolute
     Pin-Priority: -1
 
     Package: powershell
-    Pin: release l=microsoft-ubuntu-noble-prod noble
+    Pin: release l=microsoft-ubuntu-resolute-prod resolute
     Pin-Priority: 500
 # Dropped 2026-10-03: ansible, canon-scanner, font-manager-staging, mkusb and
 # obs_studio. Their Launchpad signing keys bind with SHA-1, which the Sequoia
@@ -303,12 +307,12 @@ sources_repos:
       uris: "/linux/deb"
     azure-cli:
       comment: "Microsoft Azure command-line interface"
-      # packages.microsoft.com/repos/azure-cli only ships Ubuntu suites up to
-      # "noble" (24.04); it has no "resolute" (26.04) index yet, so pin to
-      # noble until Microsoft publishes a newer suite.
+      # A "resolute" (26.04) index appeared on or before 2026-11-20, carrying
+      # the same azure-cli 2.93.0 as noble did but built for the series. No
+      # "stonking" (26.10) index yet; stay on resolute until there is.
       server: "https://packages.microsoft.com"
       signed_by: "/keys/microsoft.asc"
-      suites: "noble"
+      suites: "resolute"
       uris: "/repos/azure-cli"
     # No "stonking" (26.10) suite here yet; stay on resolute until there is.
     docker:
@@ -366,18 +370,28 @@ sources_repos:
       signed_by: "/gpg"
       suites: "resolute"
       uris: ""
+    # The channel is a minor version, not a moving "stable": upstream
+    # publishes one repository per minor and never rolls a host forward on its
+    # own. Raising it here is therefore a deliberate cluster upgrade -- the
+    # next apt run installs the new kubelet, kubeadm and kubectl -- and
+    # kubeadm's skew rules still apply: upgrade the control plane before the
+    # workers, and never run a kubelet newer than the API server. This role
+    # does kubeadm init and join only; it does not drive "kubeadm upgrade".
     k8s:
       comment: "Kubernetes packages"
       components: null
-      server: "https://pkgs.k8s.io/core:/stable:/v1.36/deb"
+      server: "https://pkgs.k8s.io/core:/stable:/v1.37/deb"
       signed_by: "/Release.key"
       suites: "/"
       uris: ""
+    # A "resolute" (26.04) suite exists and carries the same cmake 4.5.0 as
+    # noble, built for the series. No "stonking" (26.10) suite yet; stay on
+    # resolute until there is.
     kitware:
       comment: "CMake and associated build tools"
       server: "https://apt.kitware.com"
       signed_by: "/keys/kitware-archive-latest.asc"
-      suites: "noble"
+      suites: "resolute"
     # The unversioned suite is the development snapshot (clang-24 and on); its
     # unversioned metapackages (clang, clang-format, ...) still depend on the
     # previous major, which lives only in the versioned "-23" suite. Without
@@ -390,18 +404,19 @@ sources_repos:
       signed_by: "/llvm-snapshot.gpg.key"
       suites: "llvm-toolchain-resolute llvm-toolchain-resolute-23"
       uris: "/resolute"
-    # Microsoft publishes no powershell package for resolute (26.04): its
-    # /ubuntu/26.04/prod repo exists but leaves powershell out. The noble
-    # (24.04) build installs cleanly - libssl3t64 provides libssl3 and
-    # libgcc-s1 provides libgcc1 - so take it from there, and only it: the
-    # "microsoft-prod" entry in sources_preferences refuses everything else in
-    # this repo. Move to /ubuntu/26.04/prod once powershell appears there.
+    # powershell appeared in /ubuntu/26.04/prod on or before 2026-11-20
+    # (7.7.0-1.deb), which is what the note here said to wait for, so this no
+    # longer borrows the noble (24.04) build. Still powershell and only
+    # powershell: the "microsoft-prod" entry in sources_preferences refuses
+    # everything else in this repo, which also carries dotnet, SQL Server
+    # tools and much besides. No "stonking" (26.10) tree yet -- /ubuntu/26.10/
+    # prod serves a stonking index but no powershell in it.
     microsoft-prod:
-      comment: "Microsoft PowerShell (noble build, pinned to powershell only)"
+      comment: "Microsoft PowerShell (resolute build, pinned to powershell only)"
       server: "https://packages.microsoft.com"
       signed_by: "/keys/microsoft.asc"
-      suites: "noble"
-      uris: "/ubuntu/24.04/prod"
+      suites: "resolute"
+      uris: "/ubuntu/26.04/prod"
     mdatp:
       comment: "Microsoft Defender Advanced Threat Protection"
       server: "https://packages.microsoft.com"

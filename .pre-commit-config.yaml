@@ -40,7 +40,7 @@ repos:
         # an agent, not prose for people, so they stay out of the prose check.
         entry: vale
         language: python
-        additional_dependencies: ["vale==3.19.0.0"]
+        additional_dependencies: ["vale==3.27.0.0"]
         types: [markdown]
         exclude: ^(CLAUDE\.md|\.claude/)
 
@@ -54,7 +54,7 @@ repos:
       - id: trailing-whitespace
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: v0.17.6
     hooks:
       - id: ruff-check
         args: [--fix]
@@ -70,7 +70,7 @@ repos:
           - jinja2
 
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.10
+    rev: v3.10.1
     hooks:
       - id: prettier
         # Markdown only: the YAML belongs to ansible-lint and yamllint, and
