@@ -21,16 +21,28 @@ class FilterModule:
     """Ansible filter module class."""
 
     @staticmethod
-    def fetch_and_convert(url: str) -> str:
-        """Fetch a signing key from a url and return a .sources fragment.
+    def fetch_and_convert(urls: str | list[str]) -> str:
+        """Fetch one or more signing keys and return a .sources fragment.
 
         Publicly available signing keys may be armored or unarmored. We fetch
-        the key, convert it to armored if needed, ensure that it starts and ends
-        with the desired identifer string, then indent it by one space for use
-        in a .sources file.
+        each key, convert it to armored if needed, ensure that it starts and
+        ends with the desired identifier string, then indent it by one space
+        for use in a .sources file.
+
+        Several keys fold into a *single* armored block, because each one is
+        dearmored on its own and the binary results are concatenated before
+        the whole is re-armored. So a repo that spans a vendor's key rotation
+        can name the outgoing and the incoming key together, and apt checks
+        the index against whichever one signed it, ignoring the other.
+        Measured against apt 3.3.3: one block carrying both Microsoft release
+        signers verifies the prod repo, which has rotated, and the vscode
+        repo, which has not, with no warning from either. Note that a key
+        named here is one apt will *accept* for that repo, so list only keys
+        of the vendor who owns it.
 
         Args:
-            url: A fully-qualified url from which a key may be downloaded.
+            urls: A fully-qualified url from which a key may be downloaded,
+                or a list of several such urls.
 
         Returns:
             A properly-formatted "Signed-By:" snippet that may be inserted
@@ -38,19 +50,33 @@ class FilterModule:
 
 
         """
-        # Fetch the contents of the `url` as a string. The URL comes from the
-        # playbook's own vars, always an https:// key location, not user input.
-        with urlopen(url) as response:  # noqa: S310
-            key = response.read()
-        # Pass it through `gpg --dearmor` in case it is already armored,
-        # then through `gpg --armor` to re-armor it.
         gpg = which("gpg")
         # Use sed to convert the output for use with a .sources file.
         sed = which("sed")
-        # shell=True is deliberate: the command is a fixed three-stage pipeline
-        # built from which() results, with no untrusted text interpolated.
+        # Dearmor each key separately and concatenate the binary results,
+        # rather than concatenating what was fetched and dearmoring once. A
+        # key may be served either armored or unarmored, and `gpg --dearmor`
+        # copies an unarmored one through byte for byte - so any separator
+        # inserted between two fetched keys would land inside a certificate
+        # instead of between them. Dearmoring first means none is needed.
+        #
+        # The URLs come from the playbook's own vars, always https:// key
+        # locations, not user input.
+        url_list = [urls] if isinstance(urls, str) else urls
+        key = b""
+        for url in url_list:
+            with urlopen(url) as response:  # noqa: S310
+                # shell=True is deliberate here and below: every command is
+                # fixed, built from which() results, with no untrusted text
+                # interpolated.
+                key += run(  # noqa: S602
+                    f"{gpg} --dearmor",
+                    check=True, input=response.read(), shell=True, stdout=PIPE,
+                    text=False,
+                ).stdout
+        # Re-armor the collected keys as one block and reshape it for apt.
         return "Signed-By:\n" + run(  # noqa: S602
-            f"{gpg} --dearmor | {gpg} --enarmor | {sed} -e '"
+            f"{gpg} --enarmor | {sed} -e '"
             "/^Comment:/d;/^Version/d;"
             "s/ARMORED FILE/PUBLIC KEY BLOCK/;s/^$/./;s/^/ /'",
             check=True, input=key, shell=True, stdout=PIPE,

@@ -1,0 +1,21 @@
+# Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+#
+# Every target below is a port on this host's own loopback, opened by the
+# host being measured via a reverse SSH tunnel (see
+# diagnostics_tunnel_target). Nothing here reaches out to a private address,
+# because it cannot: the measured hosts sit behind NAT.
+global:
+  scrape_interval: "{{ diagnostics_scrape_interval }}"
+  scrape_timeout: "{{ diagnostics_scrape_timeout | default('2s') }}"
+
+scrape_configs:
+  - job_name: "node"
+    static_configs:
+{% for host in ansible_play_hosts | sort %}
+{% if hostvars[host].diagnostics_tunnel_target | default('') == inventory_hostname %}
+      - labels:
+          instance: "{{ host }}"
+        targets:
+          - "127.0.0.1:{{ hostvars[host].diagnostics_tunnel_remote_port | default(19100) }}"
+{% endif %}
+{% endfor %}

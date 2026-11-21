@@ -1,0 +1,56 @@
+---
+- name: "Reload the systemd manager configuration"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: "Restart journald"
+  ansible.builtin.systemd_service:
+    name: "systemd-journald"
+    state: "restarted"
+
+- name: "Restart the sysstat collection timer"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "sysstat-collect.timer"
+    state: "restarted"
+
+- name: "Restart node-exporter"
+  ansible.builtin.systemd_service:
+    name: "prometheus-node-exporter"
+    state: "restarted"
+
+- name: "Restart the extra-metrics sampler"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "node-exporter-extra-metrics.timer"
+    state: "restarted"
+
+# Changing /etc/kernel/cmdline has no effect until the loader entries are
+# regenerated from it, which kernel-install does per kernel version.
+- name: "Rewrite the systemd-boot entries"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      set -o pipefail
+      for kernel in /boot/vmlinuz-*; do
+        version=${kernel#/boot/vmlinuz-}
+        kernel-install add "$version" "$kernel" "/boot/initrd.img-$version"
+      done
+  changed_when: true
+
+- name: "Restart the power cap unit"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "diagnostics-power-cap"
+    state: "restarted"
+
+- name: "Restart the node-exporter tunnel"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "node-exporter-tunnel"
+    state: "restarted"
+
+- name: "Restart Prometheus"
+  ansible.builtin.systemd_service:
+    name: "prometheus"
+    state: "restarted"

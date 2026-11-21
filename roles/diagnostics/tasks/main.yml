@@ -1,0 +1,362 @@
+---
+# Everything here is gated on one variable rather than tagged, so a host that
+# has not asked for this instrumentation never installs a crash-dump kernel
+# or a 5-second sampler. See defaults/main.yml for why the role exists.
+- name: "Instrument a host that resets without leaving a trace"
+  when: "diagnostics_enabled | bool"
+  block:
+    - name: "Install the diagnostic packages"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        install_recommends: true
+        name: "{{ diagnostics_packages }}"
+        state: "present"
+
+    # Two files, because they answer different questions: modprobe.d says how
+    # to bind the chip, modules-load.d says to bind it at all. The driver is
+    # not autoloaded for this board - nothing claims the device - so without
+    # the second file the first never applies.
+    - name: "Bind the board's Super I/O chip for fan and VRM sensors"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          # MSI's NCT6687D is absent from this driver's table of known chips,
+          # so it refuses the device unless forced. Without it lm-sensors
+          # reports no fan tachometer, no VRM thermistor and no board
+          # voltage at all.
+          options {{ diagnostics_hwmon_module }} {{ diagnostics_hwmon_options }}
+        dest: "/etc/modprobe.d/{{ diagnostics_hwmon_module }}.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+
+    - name: "Load the Super I/O driver at boot"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          # See /etc/modprobe.d/{{ diagnostics_hwmon_module }}.conf.
+          {{ diagnostics_hwmon_module }}
+        dest: "/etc/modules-load.d/{{ diagnostics_hwmon_module }}.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+
+    - name: "Load the Super I/O driver now"
+      community.general.modprobe:
+        name: "{{ diagnostics_hwmon_module }}"
+        params: "{{ diagnostics_hwmon_options }}"
+        state: "present"
+
+    - name: "Create the systemd drop-in directories"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "{{ item }}"
+        state: "directory"
+      loop:
+        - "/etc/systemd/journald.conf.d"
+        - "/etc/systemd/system/sysstat-collect.timer.d"
+
+    # The default is 5m, and the journal duly stopped mid-line four minutes
+    # before the reset. Storage is pinned to persistent rather than left at
+    # auto, so the setting cannot be quietly defeated by /var/log/journal
+    # going missing.
+    - name: "Sync the journal to disk within seconds, not minutes"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          # A hard reset loses whatever journald has not yet synced; at the
+          # packaged 5m that was the entire run-up to the event.
+          [Journal]
+          Storage=persistent
+          SyncIntervalSec={{ diagnostics_journald_sync }}
+        dest: "/etc/systemd/journald.conf.d/99-diagnostics.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Restart journald"
+
+    # An empty OnCalendar= first, because a drop-in otherwise *adds* a
+    # schedule rather than replacing the packaged one, and the timer would
+    # keep firing on both.
+    - name: "Resample sysstat often enough to see a load ramp"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          # The packaged schedule is every 10 minutes, and the whole event
+          # fell inside one gap. Turn this back down once the fault is
+          # understood - see diagnostics_sysstat_interval.
+          [Timer]
+          OnCalendar=
+          OnCalendar={{ diagnostics_sysstat_interval }}
+          AccuracySec=1s
+        dest: "/etc/systemd/system/sysstat-collect.timer.d/override.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Restart the sysstat collection timer"
+
+    - name: "Set the sar history to days: {{ diagnostics_sysstat_history }}"
+      ansible.builtin.lineinfile:
+        line: "HISTORY={{ diagnostics_sysstat_history }}"
+        path: "/etc/sysstat/sysstat"
+        regexp: "^HISTORY="
+      notify: "Restart the sysstat collection timer"
+
+    - name: "Enable the services that record hardware faults"
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "{{ item }}"
+        state: "started"
+      loop:
+        - "rasdaemon"
+        - "smartmontools"
+        - "sysstat"
+        - "sysstat-collect.timer"
+
+    # Loopback only, and no scrape target configured here: homelab is on a
+    # private 10.0.0.0/24 behind NAT and racknerd cannot reach it, so the
+    # transport is a separate decision. The exporter is still worth running
+    # locally - it is what any transport will carry, and `curl` against it
+    # answers questions by hand in the meantime.
+    - name: "Point node-exporter at the textfile collector"
+      ansible.builtin.lineinfile:
+        line: >-
+          ARGS="--web.listen-address={{ diagnostics_node_exporter_listen }}
+          --collector.textfile.directory={{ diagnostics_node_exporter_textfile_dir }}"
+        # Created if absent only so a check-mode run, where the package is
+        # not yet installed, still reports what it would do. A real run
+        # installs the package first and edits its own conffile.
+        create: true
+        mode: "u=rw,g=r,o=r"
+        path: "/etc/default/prometheus-node-exporter"
+        regexp: "^ARGS="
+      notify: "Restart node-exporter"
+
+    - name: "Create the textfile collector directory"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "{{ diagnostics_node_exporter_textfile_dir }}"
+        state: "directory"
+
+    - name: "Install the extra-metrics exporter"
+      ansible.builtin.copy:
+        dest: "/usr/local/sbin/node-exporter-extra-metrics"
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        src: "node-exporter-extra-metrics"
+      notify: "Restart the extra-metrics sampler"
+
+    - name: "Run the extra-metrics exporter as a unit"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          [Unit]
+          Description=Export metrics node-exporter cannot collect itself
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/node-exporter-extra-metrics {{ diagnostics_node_exporter_textfile_dir }}
+        dest: "/etc/systemd/system/node-exporter-extra-metrics.service"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Restart the extra-metrics sampler"
+
+    - name: "Schedule the extra-metrics exporter"
+      ansible.builtin.copy:
+        content: |
+          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+          [Unit]
+          Description=Sample the extra metrics
+          [Timer]
+          OnBootSec={{ diagnostics_extra_metrics_interval }}
+          OnUnitActiveSec={{ diagnostics_extra_metrics_interval }}
+          AccuracySec=1s
+          [Install]
+          WantedBy=timers.target
+        dest: "/etc/systemd/system/node-exporter-extra-metrics.timer"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+      notify: "Restart the extra-metrics sampler"
+
+    - name: "Enable node-exporter and the extra-metrics sampler"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        enabled: true
+        name: "{{ item }}"
+        state: "started"
+      loop:
+        - "prometheus-node-exporter"
+        - "node-exporter-extra-metrics.timer"
+
+    # The only task here that touches boot configuration, and the only one
+    # that needs a reboot before it does anything. /etc/kernel/cmdline is the
+    # source of truth under systemd-boot (see roles/bootstrap/tasks/
+    # systemd_boot.yml); an option already set by hand is left alone.
+    - name: "Reserve memory for the crash-dump kernel"
+      when: "diagnostics_kdump_crashkernel | length > 0"
+      block:
+        - name: "Read the current kernel command line"
+          ansible.builtin.slurp:
+            src: "/etc/kernel/cmdline"
+          register: "diagnostics_cmdline"
+
+        - name: "Add crashkernel= to the kernel command line"
+          ansible.builtin.copy:
+            content: "{{ diagnostics_old_text }}{{ diagnostics_separator }}{{ diagnostics_new_option }}\n"
+            dest: "/etc/kernel/cmdline"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+          notify: "Rewrite the systemd-boot entries"
+          vars:
+            diagnostics_old_text: "{{ diagnostics_cmdline.content | b64decode | trim }}"
+            diagnostics_new_option: "crashkernel={{ diagnostics_kdump_crashkernel }}"
+            diagnostics_separator: "{{ '\n' if '\n' in diagnostics_old_text else ' ' }}"
+          # Left alone if a crashkernel= is already set, by this role or by
+          # hand, so a value chosen deliberately is never overwritten.
+          when: "'crashkernel=' not in diagnostics_old_text"
+
+    # A sysfs write does not survive a reboot, so the ceiling is reapplied by
+    # a unit rather than set once by hand. Oneshot with RemainAfterExit, so
+    # `systemctl status` shows whether it is in force.
+    - name: "Hold the package power ceilings across reboots"
+      when: >-
+        diagnostics_rapl_pl1_watts | int > 0
+        or diagnostics_rapl_pl2_watts | int > 0
+      block:
+        - name: "Install the package power ceiling unit"
+          ansible.builtin.copy:
+            content: |
+              # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+              # See diagnostics_rapl_pl1_watts for why this exists.
+              [Unit]
+              Description=Cap sustained CPU package power
+              ConditionPathIsReadWrite=/sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw
+              [Service]
+              Type=oneshot
+              RemainAfterExit=yes
+              {% if diagnostics_rapl_pl1_watts | int > 0 %}
+              ExecStart=/bin/sh -c 'echo {{ diagnostics_rapl_pl1_watts | int * 1000000 }} > /sys/class/powercap/intel-rapl:0/constraint_0_power_limit_uw'
+              {% endif %}
+              {% if diagnostics_rapl_pl2_watts | int > 0 %}
+              ExecStart=/bin/sh -c 'echo {{ diagnostics_rapl_pl2_watts | int * 1000000 }} > /sys/class/powercap/intel-rapl:0/constraint_1_power_limit_uw'
+              {% endif %}
+              [Install]
+              WantedBy=multi-user.target
+            dest: "/etc/systemd/system/diagnostics-power-cap.service"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+          notify: "Restart the power cap unit"
+
+        - name: "Enable the package power ceiling"
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+            enabled: true
+            name: "diagnostics-power-cap"
+            state: "started"
+
+    # The measured host dials out; see diagnostics_tunnel_target for why a
+    # plain scrape cannot reach it.
+    - name: "Tunnel node-exporter out to the scraper"
+      when: "diagnostics_tunnel_target | length > 0"
+      block:
+        - name: "Create the tunnel key"
+          community.crypto.openssh_keypair:
+            comment: "node-exporter tunnel from {{ inventory_hostname }}"
+            mode: "u=rw"
+            path: "{{ diagnostics_tunnel_key }}"
+            type: "ed25519"
+          register: "diagnostics_tunnel_keypair"
+
+        - name: "Install the tunnel unit"
+          ansible.builtin.copy:
+            content: |
+              # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+              [Unit]
+              Description=Reverse tunnel node-exporter to {{ diagnostics_tunnel_target }}
+              After=network-online.target prometheus-node-exporter.service
+              Wants=network-online.target
+              [Service]
+              # ExitOnForwardFailure so a refused forward restarts the unit
+              # rather than leaving a connection up with no tunnel in it;
+              # the keepalives notice a dead peer, which matters on a host
+              # whose whole problem is dying without warning.
+              ExecStart=/usr/bin/ssh -NT \
+                -o BatchMode=yes \
+                -o ExitOnForwardFailure=yes \
+                -o ServerAliveInterval=15 \
+                -o ServerAliveCountMax=3 \
+                -o StrictHostKeyChecking=accept-new \
+                -i {{ diagnostics_tunnel_key }} \
+                -p {{ hostvars[diagnostics_tunnel_target].ansible_port | default(22) }} \
+                -R {{ diagnostics_tunnel_remote_port }}:127.0.0.1:{{ diagnostics_node_exporter_listen.split(':')[1] }} \
+                {{ hostvars[diagnostics_tunnel_target].ansible_user | default('root') }}@{{ hostvars[diagnostics_tunnel_target].ansible_host }}
+              Restart=always
+              RestartSec=10s
+              [Install]
+              WantedBy=multi-user.target
+            dest: "/etc/systemd/system/node-exporter-tunnel.service"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+          notify: "Restart the node-exporter tunnel"
+
+        - name: "Enable the tunnel"
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+            enabled: true
+            name: "node-exporter-tunnel"
+            state: "started"
+
+# Runs on the collecting host. Every target is a loopback port that the
+# measured host opened itself, so Prometheus needs no route inward and
+# nothing is published.
+- name: "Collect what the tunnels deliver"
+  when: "diagnostics_scraper_enabled | bool"
+  block:
+    - name: "Install Prometheus"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        name: "prometheus"
+        state: "present"
+
+    - name: "Authorise the tunnel keys that will arrive"
+      ansible.posix.authorized_key:
+        comment: "node-exporter tunnel from {{ item }}"
+        key: "{{ hostvars[item].diagnostics_tunnel_keypair.public_key }}"
+        key_options: "restrict,port-forwarding"
+        user: "{{ ansible_user | default('root') }}"
+      loop: "{{ ansible_play_hosts | reject('eq', inventory_hostname) | list }}"
+      when: "hostvars[item].diagnostics_tunnel_keypair is defined"
+
+    - name: "Scrape every tunnel that lands on loopback"
+      ansible.builtin.template:
+        dest: "/etc/prometheus/prometheus.yml"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "prometheus.yml.j2"
+      notify: "Restart Prometheus"
+
+    - name: "Set the Prometheus retention to {{ diagnostics_scrape_retention }}"
+      ansible.builtin.lineinfile:
+        create: true
+        line: >-
+          ARGS="--storage.tsdb.retention.time={{ diagnostics_scrape_retention }}"
+        mode: "u=rw,g=r,o=r"
+        path: "/etc/default/prometheus"
+        regexp: "^ARGS="
+      notify: "Restart Prometheus"
+
+    - name: "Enable Prometheus"
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "prometheus"
+        state: "started"

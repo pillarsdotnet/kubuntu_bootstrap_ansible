@@ -1,0 +1,134 @@
+---
+# Instrumentation for a host that resets without leaving a trace.
+#
+# homelab hard-reset at 2026-11-21 15:34:01 and the cause could not be
+# established, because nothing on the machine was in a position to record it:
+#
+#   - The kernel never panicked. efi_pstore is registered and working, yet
+#     /sys/fs/pstore was empty afterwards and systemd-pstore.service skipped
+#     on ConditionDirectoryNotEmpty. No MCE, no OOM kill, no watchdog.
+#   - The board (MSI PRO Z790-A WIFI, MS-7E07) publishes no BERT, ERST or
+#     HEST ACPI table and carries no BMC, so the firmware keeps no error
+#     record for the previous boot either.
+#   - journald syncs its persistent store every 5 minutes by default, so the
+#     journal simply stopped mid-line four minutes before the reset.
+#   - sysstat was collecting every 10 minutes. Its last sample, at 15:30:01,
+#     showed the host 99.6% idle - and the load ramp that followed (an apt
+#     full-upgrade and a Forgejo Actions job starting together) fell entirely
+#     inside the gap, which is why the fans were audible but nothing logged.
+#   - lm-sensors saw no fan or VRM sensor at all: the board's Super I/O chip
+#     is an NCT6687D, which the in-tree nct6683 driver only binds with
+#     force=1, and nothing set that.
+#
+# So the point of this role is to make the *next* occurrence legible. It is
+# opt-in per host and off everywhere until a host asks for it, because the
+# sampling rates below are deliberately aggressive and meant to be turned
+# back down once the fault is caught.
+diagnostics_enabled: false
+
+# Installed only where the role is enabled, rather than added to
+# sources_packages, so the fleet does not carry a crash-dump kernel and a
+# 5-second sampler it has no use for.
+#   kdump-tools              dumps a kernel panic to disk (see
+#                            diagnostics_kdump_crashkernel - needs a reboot)
+#   lm-sensors               the sensors(1) the hwmon module below feeds
+#   prometheus-node-exporter hwmon/RAPL/CPU metrics for an off-box scraper
+#   rasdaemon                persists MCE, memory and PCIe AER events
+#   smartmontools            smartd, for the five NVMe drives
+#   sysstat                  sar history, resampled below
+diagnostics_packages:
+  - "kdump-tools"
+  - "lm-sensors"
+  - "prometheus-node-exporter"
+  - "rasdaemon"
+  - "smartmontools"
+  - "sysstat"
+
+# The Super I/O chip that carries fan tachometers, the VRM and PCH
+# thermistors and the board voltages. MSI's NCT6687D is not in the in-tree
+# driver's table of known chips, so it binds only when told to; without this
+# the host has no fan or VRM visibility whatsoever, which is most of what is
+# needed to tell a dead pump from a tripped PSU.
+diagnostics_hwmon_module: "nct6683"
+diagnostics_hwmon_options: "force=1"
+
+# How often sadc writes a sample. Every 5 seconds, not the packaged 10
+# minutes: the whole failure fell inside one 10-minute gap. Measured at
+# 8.5 KiB per sample, so about 147 MiB a day, against 5.2 TiB free on /.
+# Turn this back down once the fault is understood.
+diagnostics_sysstat_interval: "*:*:0/5"
+diagnostics_sysstat_history: 7
+
+# How long journald may leave the persistent journal unsynced. The default
+# is 5m, which is exactly the window that was lost. Costs more disk writes.
+diagnostics_journald_sync: "5s"
+
+# Memory reserved at boot for the crash-dump kernel. This is the only
+# setting here that touches boot configuration: it is appended to
+# /etc/kernel/cmdline and takes effect on the next boot. Set to "" to leave
+# the command line alone and have kdump installed but inert.
+#
+# Worth knowing before enabling it: the reset this role exists for was *not*
+# a panic, so kdump would not have caught it. It is here to rule the panic
+# case in or out, not because it is expected to fire.
+diagnostics_kdump_crashkernel: "512M"
+
+# Where node-exporter listens. Loopback by default: homelab sits on a
+# private 10.0.0.0/24 behind NAT, so nothing off-site can reach it anyway
+# (see the scraper note in README), and binding publicly would only widen
+# the surface. Change this once a transport to the scraper exists.
+diagnostics_node_exporter_listen: "127.0.0.1:9100"
+
+# Collectors beyond the defaults. hwmon and rapl are on by default and carry
+# the temperatures, fan speeds and package power; thermal_zone adds the ACPI
+# zones, and textfile picks up the throttle counters below, which
+# node-exporter does not export itself.
+diagnostics_node_exporter_textfile_dir: "/var/lib/prometheus/node-exporter"
+
+# How often the extra-metrics exporter samples into the textfile collector.
+# It publishes the two things node-exporter cannot: the CPU throttle
+# counters, which distinguish a die that got hot from a board asserting
+# PROCHOT at it, and the RAPL energy counters, whose sysfs files are 0400
+# root-only because a readable energy counter is a power side-channel.
+diagnostics_extra_metrics_interval: "5s"
+
+# Sustained package power ceiling in watts, reapplied at every boot because
+# a sysfs write does not survive one. 0 leaves the firmware's value alone.
+#
+# This is a mitigation rather than instrumentation, and it is here because it
+# belongs to the same investigation: measured on homelab at 2026-11-21 16:00,
+# eight concurrent Forgejo Actions package builds drove the package to 95 C -
+# five degrees off the critical point - with the CPU fan already at full duty
+# and only 2101 RPM to give. Nothing in software could cool it further, so
+# the remaining lever is to stop asking for the heat. PL2 is deliberately
+# left alone, so short bursts still boost; only the sustained ceiling moves.
+diagnostics_rapl_pl1_watts: 0
+
+# The burst ceiling, in watts. 0 leaves the firmware's value alone.
+#
+# This is the one that actually bounds the peaks: PL1 governs a rolling
+# average over constraint_0_time_window_us, measured at ~56 s on homelab, so
+# capping PL1 alone still permits half a minute at well over it. Measured
+# 2026-11-21 16:01, with PL1 already down to 150 W, the package kept drawing
+# 209-245 W in 2-second samples until the build queue drained, and the 96 C
+# peak fell inside exactly those bursts.
+diagnostics_rapl_pl2_watts: 0
+
+# Reverse-tunnel this host's node-exporter to the named inventory host, which
+# then scrapes it on its own loopback. "" disables the tunnel.
+#
+# A plain scrape cannot work here: homelab is 10.0.0.2 behind NAT with no
+# WireGuard or Tailscale, and racknerd is a public VPS that cannot reach it.
+# The tunnel inverts the direction - homelab dials out, as it already does
+# for everything else - so nothing has to be exposed and no new credential
+# is published. The key below is restricted to port forwarding on the far
+# side, so it cannot be used to run a command.
+diagnostics_tunnel_target: ""
+diagnostics_tunnel_remote_port: 19100
+diagnostics_tunnel_key: "/etc/ssh/node-exporter-tunnel"
+
+# Set on the host that collects. It scrapes only loopback: every target
+# arrives through a tunnel opened by the host being measured.
+diagnostics_scraper_enabled: false
+diagnostics_scrape_interval: "5s"
+diagnostics_scrape_retention: "30d"

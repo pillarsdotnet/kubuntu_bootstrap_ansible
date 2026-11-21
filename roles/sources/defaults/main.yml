@@ -292,6 +292,25 @@ sources_preferences:
 # Canon cnijfilter and scangearmp2 drivers were purged from homelab, the only
 # host that had them. Do not loosen apt's SHA-1 policy to bring any of these
 # back: it is global.
+# Every packages.microsoft.com repo below is signed by one of these two keys,
+# and names both, because the fleet is caught mid-rotation. Measured
+# 2026-11-21: only /ubuntu/26.04/prod has moved to EE4D7792F748182B
+# (microsoft-2025.asc, "Microsoft Corporation - General GPG Signer"), while
+# /repos/code and /repos/microsoft-ubuntu-mantic-prod were re-signed the day
+# before with the older EB3E94ADBE1229CF (microsoft.asc, "Microsoft (Release
+# signing)"), and /repos/azure-cli still carries a 15 November index.
+#
+# Naming both lets each repo rotate on its own schedule instead of failing a
+# run with "Missing key ..., which is needed to verify signature" the morning
+# it flips - which is how this was found. The signed_by filter folds several
+# keys into one armored block, and apt checks an index against whichever one
+# signed it. Named rather than written inline so a host can narrow it, and so
+# dropping microsoft.asc once every repo above has rotated is a one-line
+# change here.
+sources_microsoft_keys:
+  - "/keys/microsoft.asc"
+  - "/keys/microsoft-2025.asc"
+
 sources_repos:
   common:
     1password:
@@ -311,7 +330,7 @@ sources_repos:
       # the same azure-cli 2.93.0 as noble did but built for the series. No
       # "stonking" (26.10) index yet; stay on resolute until there is.
       server: "https://packages.microsoft.com"
-      signed_by: "/keys/microsoft.asc"
+      signed_by: "{{ sources_microsoft_keys }}"
       suites: "resolute"
       uris: "/repos/azure-cli"
     # No "stonking" (26.10) suite here yet; stay on resolute until there is.
@@ -414,13 +433,13 @@ sources_repos:
     microsoft-prod:
       comment: "Microsoft PowerShell (resolute build, pinned to powershell only)"
       server: "https://packages.microsoft.com"
-      signed_by: "/keys/microsoft.asc"
+      signed_by: "{{ sources_microsoft_keys }}"
       suites: "resolute"
       uris: "/ubuntu/26.04/prod"
     mdatp:
       comment: "Microsoft Defender Advanced Threat Protection"
       server: "https://packages.microsoft.com"
-      signed_by: "/keys/microsoft.asc"
+      signed_by: "{{ sources_microsoft_keys }}"
       suites: "nightly"
       uris: "/repos/microsoft-ubuntu-mantic-prod"
     nodesource:
@@ -473,7 +492,7 @@ sources_repos:
     vscode:
       comment: "Free code editor from Microsoft"
       server: "https://packages.microsoft.com"
-      signed_by: "/keys/microsoft.asc"
+      signed_by: "{{ sources_microsoft_keys }}"
       uris: "/repos/code"
   desktop:
     github-desktop:

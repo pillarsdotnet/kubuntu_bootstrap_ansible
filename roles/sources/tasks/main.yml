@@ -227,6 +227,28 @@
     path: "/etc/apt/sources.list.d/{{ item }}"
     state: "absent"
   loop: "{{ sources_obsolete }}"
+# Before the upgrade below, not only before "Install new packages": the
+# question comes from the package's postinst, so upgrading an already
+# installed code asks it too. That is what broke this role on homelab - a
+# hand-run "apt upgrade" sat on the whiptail prompt for six days holding
+# /var/cache/apt/archives/lock, and the upgrade task below reported only
+# "apt-get clean failed" (rc 100), which is what that lock looks like from
+# here.
+#
+# The answer is false, because this role already manages a "vscode" entry in
+# sources_repos. Letting the postinst add Microsoft's repo would write a
+# second, unmanaged /etc/apt/sources.list.d/vscode.list - exactly the file
+# 99move-list-files.conf above then shunts aside after every dpkg run. The
+# question is asked at "high" priority and its own default is true, so under
+# the apt module's noninteractive frontend it would add that repo unprompted
+# rather than stall.
+- name: "Refuse the Microsoft repo the VS Code postinst offers to add"
+  ansible.builtin.debconf:
+    name: "code"
+    question: "code/add-microsoft-repo"
+    value: "false"
+    vtype: "boolean"
+  when: "bootstrap_gui | bool"
 - name: "Upgrade existing packages"
   ansible.builtin.apt:
     auto_install_module_deps: true

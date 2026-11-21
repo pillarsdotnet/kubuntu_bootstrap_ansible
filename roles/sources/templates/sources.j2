@@ -3,12 +3,20 @@ Types: {{ item.value.types | default(sources_defaults.types) }}
 Architectures: {{ item.value.arch | default(sources_defaults.arch) }}
 URIs: {{ item.value.server }}{{ item.value.uris | default(sources_defaults.uris) }}
 {% if 'fingerprint' in item.value %}
-{%   set key_url = sources_defaults.keyserver ~ item.value.fingerprint %}
+{%   set key_urls = [sources_defaults.keyserver ~ item.value.fingerprint] %}
 {% else %}
-{%   set key_url = item.value.server ~ item.value.signed_by %}
+{#   signed_by is one path below the repo's server, or a list of them: a repo
+     spanning a vendor's key rotation names the outgoing and incoming key and
+     the signed_by filter folds both into one armored block. #}
+{%   set key_paths = [item.value.signed_by] if item.value.signed_by is string
+                     else item.value.signed_by %}
+{%   set key_urls = [] %}
+{%   for key_path in key_paths %}
+{%     set _ = key_urls.append(item.value.server ~ key_path) %}
+{%   endfor %}
 {% endif %}
 Suites: {{ item.value.suites | default(sources_defaults.suites) }}
 {% set components = item.value.components | default(sources_defaults.components) %}
 {% if components is not none %}Components: {{ components }}
 {% endif %}
-{{ key_url | signed_by }}
+{{ key_urls | signed_by }}
