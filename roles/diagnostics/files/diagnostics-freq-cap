@@ -1,0 +1,55 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Cap the maximum frequency of every core whose hardware maximum exceeds the
+# ceiling, and verify the write took.
+#
+# This is a different lever from the RAPL power caps, and for the fault under
+# investigation it is the load-bearing one. Measured on homelab 2026-11-22
+# under real build load: the busy cores held 5561-5614 MHz while the package
+# drew 112 W mean against a 150 W PL1, so the power ceiling never engaged and
+# the cores sat near the top of the voltage/frequency curve throughout. The
+# second reset that day occurred at 88.8 W with those caps in force, for the
+# same reason - a power ceiling cannot bind on a workload that is not asking
+# for the power.
+#
+# Raptor Lake Vmin Shift degradation is a deficit of voltage margin at a
+# requested frequency rather than of thermal or current headroom. So the
+# mitigation that matches the mechanism is to stop requesting the frequency.
+#
+# Cores whose hardware maximum is already at or below the ceiling are skipped
+# rather than written, which on this part means the E-cores (4400 MHz) are
+# left alone and only the P-cores (5700, and 6000 on the two Turbo Boost
+# Max 3.0 favoured cores) are touched. That falls out of the comparison
+# instead of being hardcoded, so it stays correct on another machine.
+set -euo pipefail
+
+mhz="${1:?usage: $0 <max-mhz>}"
+khz=$((mhz * 1000))
+capped=0
+skipped=0
+failed=0
+
+for d in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+  [ -f "$d/scaling_max_freq" ] || continue
+  hw="$(cat "$d/cpuinfo_max_freq")"
+  if [ "$hw" -le "$khz" ]; then
+    skipped=$((skipped + 1))
+    continue
+  fi
+  echo "$khz" > "$d/scaling_max_freq" || true
+  # Read back rather than trusting the write. intel_pstate silently clamps or
+  # ignores some values, and a cap that did not apply is worse than no cap
+  # because it looks applied.
+  got="$(cat "$d/scaling_max_freq")"
+  if [ "$got" = "$khz" ]; then
+    capped=$((capped + 1))
+  else
+    failed=$((failed + 1))
+    printf 'FAILED: %s wanted %s got %s\n' "$d" "$khz" "$got" >&2
+  fi
+done
+
+printf 'capped %d core(s) to %d MHz, skipped %d already at or below, %d failed\n' \
+  "$capped" "$mhz" "$skipped" "$failed"
+[ "$failed" -eq 0 ]

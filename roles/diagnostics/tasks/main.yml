@@ -341,6 +341,50 @@
             name: "diagnostics-power-cap"
             state: "started"
 
+    # A frequency ceiling rather than a power ceiling; see
+    # diagnostics_max_freq_mhz for why the distinction decides whether the
+    # mitigation works at all. Same shape as the power cap: a sysfs write does
+    # not survive a reboot, so a unit reapplies it.
+    - name: "Hold the core frequency ceiling across reboots"
+      when: "diagnostics_max_freq_mhz | int > 0"
+      block:
+        - name: "Install the frequency cap script"
+          ansible.builtin.copy:
+            dest: "/usr/local/sbin/diagnostics-freq-cap"
+            group: "root"
+            mode: "u=rwx,g=rx,o=rx"
+            owner: "root"
+            src: "diagnostics-freq-cap"
+          notify: "Restart the frequency cap unit"
+
+        - name: "Install the frequency cap unit"
+          ansible.builtin.copy:
+            content: |
+              # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
+              # See diagnostics_max_freq_mhz for why this exists and why it is
+              # not the same thing as the RAPL power cap.
+              [Unit]
+              Description=Cap core frequency at {{ diagnostics_max_freq_mhz }} MHz
+              ConditionPathIsReadWrite=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+              [Service]
+              Type=oneshot
+              RemainAfterExit=yes
+              ExecStart=/usr/local/sbin/diagnostics-freq-cap {{ diagnostics_max_freq_mhz }}
+              [Install]
+              WantedBy=multi-user.target
+            dest: "/etc/systemd/system/diagnostics-freq-cap.service"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+          notify: "Restart the frequency cap unit"
+
+        - name: "Enable the frequency cap"
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+            enabled: true
+            name: "diagnostics-freq-cap"
+            state: "started"
+
     # The measured host dials out; see diagnostics_tunnel_target for why a
     # plain scrape cannot reach it.
     - name: "Tunnel node-exporter out to the scraper"

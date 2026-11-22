@@ -44,6 +44,12 @@
     name: "diagnostics-power-cap"
     state: "restarted"
 
+- name: "Restart the frequency cap unit"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "diagnostics-freq-cap"
+    state: "restarted"
+
 - name: "Restart the node-exporter tunnel"
   ansible.builtin.systemd_service:
     daemon_reload: true

@@ -132,6 +132,26 @@ diagnostics_rapl_pl1_watts: 0
 # peak fell inside exactly those bursts.
 diagnostics_rapl_pl2_watts: 0
 
+# Ceiling on core frequency in MHz, applied to every core whose hardware
+# maximum exceeds it and reapplied at every boot. 0 leaves the firmware's
+# values alone.
+#
+# This is a different lever from the RAPL caps above, and for the fault this
+# role exists for it is the one that matters. Measured on homelab 2026-11-22
+# under real build load: busy cores held 5561-5614 MHz while the package drew
+# 112 W mean against a 150 W PL1. The power ceiling therefore never engaged,
+# and the cores sat near the top of the voltage/frequency curve the whole
+# time. The second reset that day happened at 88.8 W *with* the power caps in
+# force - a power ceiling cannot bind on a workload that is not asking for the
+# power.
+#
+# Vmin Shift degradation is a shortfall of voltage margin at a requested
+# frequency, not of thermal or current headroom, so the mitigation that
+# matches the mechanism is to stop requesting the frequency. Measured cost at
+# 5000 on this host: about 11% off the busy-core clock, and because the builds
+# are not power-limited, roughly that much on build time.
+diagnostics_max_freq_mhz: 0
+
 # Reverse-tunnel this host's node-exporter to the named inventory host, which
 # then scrapes it on its own loopback. "" disables the tunnel.
 #
