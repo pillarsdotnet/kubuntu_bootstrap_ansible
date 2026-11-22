@@ -91,6 +91,36 @@ Connection details (`Ansible` SSH user, port, etc.) go in
 
 ---
 
+## Backing up what git does not carry
+
+`inventory.yml`, `host_vars/` and `group_vars/all/` are excluded from version
+control on purpose, so they never reach the public mirror. The consequence is
+easy to miss: the roles here would survive the loss of the machine holding
+them, and the configuration that aims those roles at real hosts would not.
+"Absent from the mirror" and "backed up" are different properties.
+
+```bash
+./tools/backup-site-config.sh <ssh-destination> [remote-directory]
+```
+
+The script archives those paths, encrypts the archive with the same vault
+password this repository already uses, proves it survives a decrypt before
+sending it, copies it to the destination, and compares checksums rather than
+trusting that `scp` said nothing. Re-run it after changing any of those files.
+
+Two things are worth stating plainly:
+
+- **The vault password is not in the archive**, and including it would make
+  the encryption decorative. The backup is therefore recoverable only while
+  that password exists somewhere other than the machine being backed up.
+  Keep it in a password manager, not only in `~/.ansible/vault_pass`.
+- **Encryption is not optional here even for a host you control.** An
+  estate's inventory on a publicly reachable machine is worse than no copy
+  of it.
+
+To restore, fetch the newest archive, `ansible-vault decrypt` it, and unpack
+it at the root of a checkout.
+
 ## Secrets: `Ansible Vault`
 
 Sensitive values — currently `sources_apt_auth` —
