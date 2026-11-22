@@ -1,0 +1,13 @@
+---
+# Most of daemon.json is re-read on SIGHUP, but the address pools are not:
+# they are consumed when the daemon builds its network allocator at startup,
+# so the change does not take effect until dockerd restarts.
+#
+# A restart tears down every running container. On the Actions runner that
+# means every in-flight job dies at once, each leaving its WORKFLOW-* network
+# behind to be pruned - exactly the state this setting exists to avoid. Drain
+# the queue before changing the configuration on a host that is building.
+- name: "Restart Docker"
+  ansible.builtin.systemd_service:
+    name: "docker"
+    state: "restarted"

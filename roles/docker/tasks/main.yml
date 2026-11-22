@@ -1,0 +1,31 @@
+---
+# Skipped entirely where docker_daemon_config is empty, which is every host
+# that has not set it. The role deliberately does not create an empty
+# daemon.json: see the note in defaults/main.yml.
+#
+# It assumes docker.io is installed, which roles/sources does from
+# sources_packages - hence the ordering in setup.yml. Setting
+# docker_daemon_config on a host whose profile filters docker.io would write
+# a configuration file for a daemon that is not there and then fail trying to
+# restart it.
+- name: "Configure the Docker daemon"
+  when: docker_daemon_config | length > 0
+  tags:
+    - "docker"
+  block:
+    - name: "Create the Docker configuration directory"
+      ansible.builtin.file:
+        path: "/etc/docker"
+        state: "directory"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+
+    - name: "Write the Docker daemon configuration"
+      ansible.builtin.copy:
+        dest: "/etc/docker/daemon.json"
+        content: "{{ docker_daemon_config | to_nice_json(indent=2) }}\n"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      notify: "Restart Docker"

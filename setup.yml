@@ -9,6 +9,9 @@
   gather_facts: true
   roles:
     - "sources"
+    # Must follow "sources", which installs docker.io. A no-op on every host
+    # that does not set docker_daemon_config; see roles/docker/defaults.
+    - "docker"
     # - "kubernetes"
     # Off for every host but the one that asked for it; see
     # roles/diagnostics/defaults/main.yml.

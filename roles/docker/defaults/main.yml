@@ -1,0 +1,36 @@
+---
+# Docker daemon settings, as the literal contents of /etc/docker/daemon.json.
+#
+# Empty by default, and empty means *no file*: dockerd falls back to its
+# built-in defaults when /etc/docker/daemon.json is absent, so a host that
+# has not asked for anything must be left without one rather than given an
+# empty object to parse.
+#
+# The dictionary is written verbatim as JSON, so a key here is a dockerd
+# option name - hyphens and all - not an Ansible variable name. Set it per
+# host in host_vars/<hostname>.yml; see README.md, "Repository layout", for
+# why those files are not in git.
+#
+# The setting this role exists for is "default-address-pools", and the reason
+# it is worth codifying is that its absence took CI down for an afternoon on
+# 2026-11-21. Out of the box dockerd carves container networks out of
+# 172.17.0.0/16 in /16 steps plus 192.168.0.0/16 in /20 steps, which yields
+# about 31 usable networks. Every Forgejo Actions job creates its own
+# WORKFLOW-* network, the runner's capacity is 8, and the registry workflows
+# run two- and three-job matrices, so pushing a dozen repositories at once
+# exhausts the pool and *every* job then dies at container creation with:
+#
+#     Error response from daemon: all predefined address pools have been
+#     fully subnetted
+#
+# which looks nothing like a build failure, because no build step ever ran.
+# A crash compounds it: killed jobs leave their networks behind, and 27
+# orphans were enough on their own to block the queue.
+#
+# homelab therefore sets a /14 carved into /24s - 1024 networks - in
+# host_vars/homelab.yml. Anything chosen here has to miss the LAN
+# (10.0.0.0/24), the headscale address (10.254.0.1) and docker0's own
+# 172.17.0.0/16; 172.20.0.0/14 was picked for that and verified against all
+# three. Confirm a new pool the same way, with "docker network create probe"
+# and "docker network inspect probe", rather than trusting the arithmetic.
+docker_daemon_config: {}
