@@ -1,0 +1,31 @@
+---
+- name: "Install nginx"
+  ansible.builtin.apt:
+    auto_install_module_deps: true
+    name: "nginx"
+    state: "present"
+
+- name: "Deploy the Forgejo vhost"
+  ansible.builtin.template:
+    dest: "/etc/nginx/sites-available/forgejo.conf"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+    src: "nginx-forgejo.conf.j2"
+    # Refuse to install a vhost nginx cannot parse, rather than reloading into
+    # a configuration that takes every other site on the host down with it.
+    validate: "nginx -t -c /etc/nginx/nginx.conf -g 'include %s;'"
+  notify: "Reload nginx"
+
+- name: "Enable the Forgejo vhost"
+  ansible.builtin.file:
+    dest: "/etc/nginx/sites-enabled/forgejo.conf"
+    src: "/etc/nginx/sites-available/forgejo.conf"
+    state: "link"
+  notify: "Reload nginx"
+
+- name: "Enable nginx"
+  ansible.builtin.systemd_service:
+    enabled: true
+    name: "nginx"
+    state: "started"

@@ -1,0 +1,33 @@
+# Managed by kubuntu_bootstrap_ansible (roles/forgejo).
+[Unit]
+Description=Forgejo (git hosting and package registry)
+Documentation=https://forgejo.org/docs/
+After=network.target
+
+[Service]
+Type=simple
+User={{ forgejo_user }}
+Group={{ forgejo_group }}
+# The forge sends mail through sendmail, which needs the mail group.
+SupplementaryGroups=mail
+WorkingDirectory={{ forgejo_home }}
+ExecStart={{ forgejo_binary }} web --config {{ forgejo_config_dir }}/app.ini
+Restart=always
+RestartSec=2s
+Environment=USER={{ forgejo_user }} HOME={{ forgejo_home }} GITEA_WORK_DIR={{ forgejo_home }}
+{% if forgejo_memory_max | length > 0 %}
+
+# See forgejo_memory_max. On a host where the forge is a guest rather than the
+# purpose of the machine, an unbounded forge means the kernel chooses which
+# service dies under pressure, and it may not choose this one.
+MemoryMax={{ forgejo_memory_max }}
+MemoryHigh={{ forgejo_memory_max }}
+{% endif %}
+
+ProtectSystem=full
+PrivateDevices=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

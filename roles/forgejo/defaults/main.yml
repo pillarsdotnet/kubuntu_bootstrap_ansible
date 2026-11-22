@@ -1,0 +1,87 @@
+---
+# Stand up a Forgejo instance, optionally restoring one taken from another
+# host. Written so that homelab's instance can be moved to racknerd while
+# homelab's processor is away for warranty replacement, and moved back after.
+#
+# Off everywhere until a host asks for it, because this role installs a git
+# forge and a package registry and no host should acquire those by accident.
+forgejo_enabled: false
+
+# The release to install. Deliberately pinned rather than tracking latest: a
+# restore is only safe onto the same version or a newer one, never older, and
+# an unpinned role would silently decide that for you. homelab runs
+# 17.0.0 (gitea-1.22.0) as of 2026-11-22.
+forgejo_version: "17.0.0"
+forgejo_binary: "/usr/local/bin/forgejo"
+
+# Matches homelab's layout so a restored instance finds its own paths. The
+# account is a system account with a real shell, because git-over-ssh runs
+# commands as it.
+forgejo_user: "forgejo"
+forgejo_group: "forgejo"
+forgejo_home: "/var/lib/forgejo"
+forgejo_config_dir: "/etc/forgejo"
+
+# Forgejo listens on loopback and nginx terminates TLS in front of it. Keep it
+# that way: the registry accepts uploads without a proxy in front only if you
+# are content to serve them in the clear.
+forgejo_http_addr: "127.0.0.1"
+forgejo_http_port: 3000
+
+# The public identity of the instance. These are the only settings that must
+# change when an instance moves hosts, which is why the restore patches them
+# rather than templating the whole file - see the note on secrets below.
+forgejo_app_name: "Forgejo"
+forgejo_domain: ""
+forgejo_root_url: ""
+
+# git-over-ssh goes through the system sshd rather than Forgejo's built-in
+# server: Forgejo writes command= entries into the run user's
+# authorized_keys. So this must match the real sshd port on the host, and the
+# clones that point at it keep working only if the hostname follows.
+forgejo_ssh_port: 65432
+forgejo_ssh_domain: ""
+
+# A dump produced by `forgejo dump` on the source host, as a path on the
+# controller. Empty means a fresh install with no data.
+#
+# Restoring from a dump rather than templating a new configuration is the
+# whole point, and the reason is secrets. Forgejo's SECRET_KEY encrypts
+# two-factor secrets, OAuth tokens and mirror credentials *inside the
+# database*. Restore that database alongside a freshly generated key and
+# those fields are not wrong, they are unrecoverable - there is nothing to
+# re-derive them from. `forgejo dump` bundles app.ini with the data, so the
+# keys travel with the rows they decrypt.
+forgejo_restore_dump: ""
+
+# The Forgejo version the dump came from. Set it alongside a restore and the
+# role refuses to proceed unless forgejo_version is the same or newer.
+#
+# This is not defensive padding. Forgejo migrates its schema forward on
+# startup and has no path backward, so a newer dump on an older binary either
+# refuses to start or is upgraded into an inconsistent state. The case that
+# prompted it: racknerd carries the distribution's forgejo 15.0.12 while
+# homelab runs 17.0.0, so the obvious move - install the package, restore the
+# dump - is the one that breaks.
+forgejo_restore_source_version: ""
+
+# Hard ceiling on the service's memory, as systemd MemoryMax. Empty leaves it
+# unbounded.
+#
+# Set this on any host where Forgejo is a guest rather than the purpose of the
+# machine. racknerd is the case in point: 4.3 GiB of RAM shared with knot and
+# opensmtpd, which are this estate's authoritative DNS and its mail. Without a
+# ceiling, a memory spike in the forge is answered by the kernel picking a
+# victim, and the victim may be DNS. With one, the forge is reclaimed from
+# first and the blast radius stops at the forge.
+forgejo_memory_max: ""
+
+# nginx vhost and certificate. The role will not request a certificate; point
+# it at one that exists, or leave TLS off and put your own proxy in front.
+forgejo_nginx_enabled: true
+forgejo_tls_cert: ""
+forgejo_tls_key: ""
+
+# Package uploads are large. nginx defaults to 1 MiB, which rejects most of
+# the registry with a 413 and no useful message.
+forgejo_client_max_body_size: "2048m"

@@ -1,0 +1,111 @@
+---
+# Additional IPv4 addresses on the primary connection, alongside whatever DHCP
+# already gives it.
+#
+# This exists so one host can answer at another host's address while that host
+# is away. The case it was written for: homelab serves the USB-attached
+# printer at 10.0.0.2, several print configurations hard-code that address,
+# and homelab's processor is going away for warranty replacement. acermagic
+# takes the printer and the address, and gives both back afterwards.
+#
+# NetworkManager supports manual addresses on a connection whose method is
+# still "auto", so the DHCP lease is kept and these are added to it. That
+# matters on a wireless host: an address added with `ip addr add` is lost on
+# the next reassociation, and comes back only if someone notices.
+- name: "Add addresses this host borrows from elsewhere"
+  when: "bootstrap_extra_addresses | length > 0"
+  block:
+    - name: "Find the connection carrying the default route"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          dev=$(ip -4 route show default | awk '{print $5; exit}')
+          [ -n "$dev" ] || { echo "no default route" >&2; exit 1; }
+          nmcli -t -f NAME,DEVICE connection show --active |
+            awk -F: -v d="$dev" '$2 == d {print $1; print $2; exit}'
+      changed_when: false
+      register: "bootstrap_alias_connection"
+
+    - name: "Name the connection and its device"
+      ansible.builtin.set_fact:
+        bootstrap_alias_con: "{{ bootstrap_alias_connection.stdout_lines[0] }}"
+        bootstrap_alias_dev: "{{ bootstrap_alias_connection.stdout_lines[1] }}"
+
+    - name: "Read the addresses already configured on it"
+      ansible.builtin.command:
+        argv:
+          - "nmcli"
+          - "-t"
+          - "-f"
+          - "ipv4.addresses"
+          - "connection"
+          - "show"
+          - "{{ bootstrap_alias_con }}"
+      changed_when: false
+      register: "bootstrap_alias_existing"
+
+    # A separate task, whose result is read before anything is written. Two
+    # hosts holding one address is worse than neither holding it: both answer
+    # ARP, traffic lands unpredictably, and the symptom looks like a flaky
+    # network rather than a configuration error. An address that is already
+    # ours answers its own ping, so "replies" only means "taken" for addresses
+    # we have not got yet.
+    - name: "Check that nothing else is answering on the borrowed addresses"
+      ansible.builtin.command:
+        argv: ["ping", "-c", "2", "-W", "1", "{{ item | split('/') | first }}"]
+      changed_when: false
+      failed_when: false
+      loop: "{{ bootstrap_extra_addresses }}"
+      register: "bootstrap_alias_probe"
+      when: "item not in bootstrap_alias_existing.stdout"
+
+    - name: "Refuse to create a duplicate address"
+      ansible.builtin.assert:
+        fail_msg: >-
+          {{ item.item }} is already answering on this network, and this host
+          does not have it. Adding it would give two machines one address.
+          Confirm the other host is off before continuing.
+        quiet: true
+        that:
+          - "item.rc | default(1) != 0"
+      loop: "{{ bootstrap_alias_probe.results }}"
+      loop_control:
+        label: "{{ item.item | default('skipped') }}"
+      when: "not (item.skipped | default(false))"
+
+    - name: "Add the borrowed addresses"
+      ansible.builtin.command:
+        argv:
+          - "nmcli"
+          - "connection"
+          - "modify"
+          - "{{ bootstrap_alias_con }}"
+          - "+ipv4.addresses"
+          - "{{ item }}"
+      changed_when: true
+      loop: "{{ bootstrap_extra_addresses }}"
+      notify: "Reapply the network connection"
+      when: "item not in bootstrap_alias_existing.stdout"
+
+    # Applied now rather than at the end of the play, because the verification
+    # below has to see the result. `nmcli device reapply` is used rather than
+    # `connection up`: it applies the changed settings to the live device
+    # without deactivating it, so the ssh session running this play survives.
+    - name: "Apply the connection change before verifying it"
+      ansible.builtin.meta: "flush_handlers"
+
+    - name: "Confirm the borrowed addresses are live"
+      ansible.builtin.command:
+        argv: ["ip", "-4", "-brief", "address", "show"]
+      changed_when: false
+      register: "bootstrap_alias_final"
+
+    - name: "Report the addresses this host now holds"
+      ansible.builtin.assert:
+        fail_msg: >-
+          {{ item | split('/') | first }} was configured but is not on any
+          interface. nmcli accepted it and the connection did not apply it.
+        quiet: true
+        that:
+          - "item | split('/') | first in bootstrap_alias_final.stdout"
+      loop: "{{ bootstrap_extra_addresses }}"

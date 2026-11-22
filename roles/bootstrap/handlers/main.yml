@@ -72,3 +72,15 @@
         kernel-install add "$version" "$kernel" "/boot/initrd.img-$version"
       done
   changed_when: true
+
+# See roles/bootstrap/tasks/ip_alias.yml. reapply rather than `connection up`:
+# it applies the new settings to the running device without deactivating it,
+# so established sockets - including Ansible's own - are not dropped.
+- name: "Reapply the network connection"
+  ansible.builtin.command:
+    argv:
+      - "nmcli"
+      - "device"
+      - "reapply"
+      - "{{ bootstrap_alias_dev }}"
+  changed_when: true

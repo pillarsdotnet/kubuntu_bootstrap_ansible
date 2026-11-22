@@ -1,0 +1,165 @@
+---
+# Restore an instance from `forgejo dump`. Idempotent by marker file: a dump
+# is a point-in-time copy, so re-running the role must not silently roll the
+# instance back to it.
+- name: "Look for a restore already done"
+  ansible.builtin.stat:
+    path: "{{ forgejo_home }}/.restored-from"
+  register: "forgejo_restore_marker"
+
+- name: "Restore the dump"
+  when: "not forgejo_restore_marker.stat.exists"
+  block:
+    # Separate from the restore itself and read before it: restoring over a
+    # live instance would overwrite rows that are being written, and the
+    # resulting database is neither the old one nor the new one.
+    - name: "Check whether Forgejo is already running here"
+      ansible.builtin.systemd_service:
+        name: "forgejo"
+      register: "forgejo_existing"
+      failed_when: false
+
+    - name: "Refuse to restore over a running instance"
+      ansible.builtin.assert:
+        fail_msg: >-
+          Forgejo is active on this host. Stop it, confirm it is the instance
+          you mean to replace, and re-run. A restore over a live database
+          produces a mixture of both.
+        quiet: true
+        that:
+          - "forgejo_existing.status.ActiveState | default('inactive') != 'active'"
+
+    - name: "Copy the dump across"
+      ansible.builtin.copy:
+        dest: "/var/tmp/forgejo-restore.zip"
+        group: "{{ forgejo_group }}"
+        mode: "u=rw,g=r,o="
+        owner: "{{ forgejo_user }}"
+        src: "{{ forgejo_restore_dump }}"
+
+    - name: "Create the unpack directory"
+      ansible.builtin.file:
+        group: "{{ forgejo_group }}"
+        mode: "u=rwx,g=rx,o="
+        owner: "{{ forgejo_user }}"
+        path: "/var/tmp/forgejo-restore"
+        state: "directory"
+
+    - name: "Unpack the dump"
+      ansible.builtin.unarchive:
+        creates: "/var/tmp/forgejo-restore/app.ini"
+        dest: "/var/tmp/forgejo-restore"
+        group: "{{ forgejo_group }}"
+        owner: "{{ forgejo_user }}"
+        remote_src: true
+        src: "/var/tmp/forgejo-restore.zip"
+
+    # app.ini comes from the dump rather than from a template, because the
+    # SECRET_KEY inside it is the only thing that can decrypt the two-factor
+    # secrets, OAuth tokens and mirror credentials in the database being
+    # restored alongside it. Generating a new key does not produce a working
+    # instance with some settings lost; it produces rows nothing can read.
+    - name: "Install app.ini from the dump, secrets and all"
+      ansible.builtin.copy:
+        dest: "{{ forgejo_config_dir }}/app.ini"
+        group: "{{ forgejo_group }}"
+        mode: "u=rw,g=r,o="
+        owner: "root"
+        remote_src: true
+        src: "/var/tmp/forgejo-restore/app.ini"
+
+    # mode: preserve, not a fixed mode. A repository tree has directories,
+    # loose objects, packfiles and hooks with deliberately different
+    # permissions; flattening them to one mode would make hooks unexecutable
+    # or objects group-readable, and the dump already carries the right ones.
+    - name: "Restore the repositories"
+      ansible.builtin.copy:
+        dest: "{{ forgejo_home }}/"
+        group: "{{ forgejo_group }}"
+        mode: "preserve"
+        owner: "{{ forgejo_user }}"
+        remote_src: true
+        src: "/var/tmp/forgejo-restore/repos/"
+
+    - name: "Restore the data directory"
+      ansible.builtin.copy:
+        dest: "{{ forgejo_home }}/data/"
+        group: "{{ forgejo_group }}"
+        mode: "preserve"
+        owner: "{{ forgejo_user }}"
+        remote_src: true
+        src: "/var/tmp/forgejo-restore/data/"
+
+    # `forgejo dump` writes the database as forgejo-db.sql, which is SQL text
+    # rather than a SQLite file. Copying it into place as forgejo.db would
+    # leave an unopenable database that looks installed, so it is imported.
+    - name: "Import the dumped database"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          rm -f {{ forgejo_home }}/data/forgejo.db \
+                {{ forgejo_home }}/data/forgejo.db-wal \
+                {{ forgejo_home }}/data/forgejo.db-shm
+          sqlite3 {{ forgejo_home }}/data/forgejo.db \
+            < /var/tmp/forgejo-restore/forgejo-db.sql
+          # WAL is not the default; the source instance runs it and the
+          # durability argument for it is the same here.
+          sqlite3 {{ forgejo_home }}/data/forgejo.db 'PRAGMA journal_mode=WAL;'
+          sqlite3 {{ forgejo_home }}/data/forgejo.db 'PRAGMA integrity_check;'
+        creates: "{{ forgejo_home }}/data/forgejo.db"
+      become_user: "{{ forgejo_user }}"
+      become: true
+
+    # Only now, after the data is in place, are the host-specific settings
+    # changed. Everything else in app.ini is left exactly as the source host
+    # had it.
+    - name: "Point the restored instance at this host"
+      community.general.ini_file:
+        group: "{{ forgejo_group }}"
+        mode: "u=rw,g=r,o="
+        option: "{{ item.option }}"
+        owner: "root"
+        path: "{{ forgejo_config_dir }}/app.ini"
+        section: "{{ item.section }}"
+        value: "{{ item.value }}"
+      loop:
+        - section: "DEFAULT"
+          option: "APP_NAME"
+          value: "{{ forgejo_app_name }}"
+        - section: "server"
+          option: "DOMAIN"
+          value: "{{ forgejo_domain }}"
+        - section: "server"
+          option: "ROOT_URL"
+          value: "{{ forgejo_root_url }}"
+        - section: "server"
+          option: "SSH_DOMAIN"
+          value: "{{ forgejo_ssh_domain | default(forgejo_domain, true) }}"
+        - section: "server"
+          option: "SSH_PORT"
+          value: "{{ forgejo_ssh_port }}"
+        - section: "server"
+          option: "HTTP_ADDR"
+          value: "{{ forgejo_http_addr }}"
+        - section: "server"
+          option: "HTTP_PORT"
+          value: "{{ forgejo_http_port }}"
+      notify: "Restart Forgejo"
+
+    - name: "Record what was restored, so a re-run does not roll it back"
+      ansible.builtin.copy:
+        content: |
+          {{ forgejo_restore_dump | basename }}
+          restored {{ ansible_date_time.iso8601 }}
+        dest: "{{ forgejo_home }}/.restored-from"
+        group: "{{ forgejo_group }}"
+        mode: "u=rw,g=r,o="
+        owner: "{{ forgejo_user }}"
+
+    - name: "Remove the unpacked dump"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: "absent"
+      loop:
+        - "/var/tmp/forgejo-restore"
+        - "/var/tmp/forgejo-restore.zip"

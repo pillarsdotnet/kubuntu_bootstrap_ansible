@@ -1,0 +1,146 @@
+---
+# See defaults/main.yml for why this role exists and why a restore carries
+# app.ini with it rather than templating a fresh one.
+- name: "Host a Forgejo instance"
+  when: "forgejo_enabled | bool"
+  block:
+    - name: "Fail early on a restore with nowhere to put it"
+      ansible.builtin.assert:
+        fail_msg: >-
+          forgejo_domain and forgejo_root_url must be set: a restored instance
+          whose ROOT_URL still names the old host will send every clone URL,
+          webhook and e-mail link back to a machine that is not serving.
+        quiet: true
+        that:
+          - "forgejo_domain | length > 0"
+          - "forgejo_root_url | length > 0"
+
+    - name: "Refuse to restore a newer instance onto an older binary"
+      ansible.builtin.assert:
+        fail_msg: >-
+          This dump came from Forgejo {{ forgejo_restore_source_version }} and
+          this host is set to run {{ forgejo_version }}. Forgejo migrates its
+          schema forward only: there is no downgrade path, so the restore
+          would either refuse to start or half-apply. Raise forgejo_version.
+        quiet: true
+        that:
+          - >-
+            forgejo_version is version(forgejo_restore_source_version, '>=')
+      when:
+        - "forgejo_restore_dump | length > 0"
+        - "forgejo_restore_source_version | length > 0"
+
+    # A distribution package would put its own binary and unit on the host,
+    # and this role installs neither of those - it pins an upstream binary in
+    # /usr/local/bin and writes a unit in /etc/systemd/system, which shadows
+    # the packaged one. That works, but silently: the packaged version can
+    # drift underneath on an apt upgrade and nothing would say so. Surfaced
+    # here so the shadowing is a decision rather than an accident.
+    - name: "Look for a packaged Forgejo that this role would shadow"
+      ansible.builtin.command:
+        argv: ["dpkg-query", "-W", "-f=${Version}", "forgejo"]
+      changed_when: false
+      failed_when: false
+      register: "forgejo_packaged"
+
+    - name: "Report a shadowed package"
+      ansible.builtin.debug:
+        msg: >-
+          Note: the forgejo package {{ forgejo_packaged.stdout }} is installed
+          here. This role runs {{ forgejo_binary }} at {{ forgejo_version }}
+          from its own unit, which takes precedence. Consider
+          `apt-mark hold forgejo` so an upgrade cannot move the packaged
+          binary under a configuration that is not using it.
+      when: "forgejo_packaged.rc == 0 and forgejo_packaged.stdout | length > 0"
+
+    - name: "Install the packages Forgejo needs"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        name:
+          - "git"
+          - "git-lfs"
+          # The forge shells out to these for repository archives and for the
+          # Debian registry's signing.
+          - "gnupg"
+          - "unzip"
+        state: "present"
+
+    - name: "Create the Forgejo group"
+      ansible.builtin.group:
+        name: "{{ forgejo_group }}"
+        system: true
+        state: "present"
+
+    # A real shell, not nologin: git-over-ssh works by sshd running
+    # `forgejo serv` as this account, and a nologin shell refuses that
+    # silently - clones fail with no diagnostic on either side.
+    - name: "Create the Forgejo user"
+      ansible.builtin.user:
+        comment: "Forgejo git service"
+        create_home: true
+        group: "{{ forgejo_group }}"
+        home: "{{ forgejo_home }}"
+        name: "{{ forgejo_user }}"
+        shell: "/bin/bash"
+        system: true
+        state: "present"
+
+    - name: "Create the Forgejo directories"
+      ansible.builtin.file:
+        group: "{{ item.group | default(forgejo_group) }}"
+        mode: "{{ item.mode }}"
+        owner: "{{ item.owner | default(forgejo_user) }}"
+        path: "{{ item.path }}"
+        state: "directory"
+      loop:
+        - path: "{{ forgejo_home }}"
+          mode: "u=rwx,g=rx,o="
+        - path: "{{ forgejo_home }}/data"
+          mode: "u=rwx,g=rx,o="
+        - path: "{{ forgejo_home }}/repositories"
+          mode: "u=rwx,g=rx,o="
+        - path: "{{ forgejo_home }}/.ssh"
+          mode: "u=rwx,g=,o="
+        - path: "{{ forgejo_config_dir }}"
+          mode: "u=rwx,g=rx,o="
+          owner: "root"
+          group: "{{ forgejo_group }}"
+
+    - name: "Install the Forgejo binary"
+      ansible.builtin.get_url:
+        dest: "{{ forgejo_binary }}"
+        force: false
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        url: >-
+          https://codeberg.org/forgejo/forgejo/releases/download/v{{
+          forgejo_version }}/forgejo-{{ forgejo_version }}-linux-amd64
+      notify: "Restart Forgejo"
+
+    # Restored before the unit is written, so the service never starts against
+    # an empty data directory and writes a fresh schema into it - which would
+    # then refuse the restore.
+    - name: "Restore an instance taken from another host"
+      when: "forgejo_restore_dump | length > 0"
+      ansible.builtin.import_tasks: "restore.yml"
+
+    - name: "Install the Forgejo unit"
+      ansible.builtin.template:
+        dest: "/etc/systemd/system/forgejo.service"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "forgejo.service.j2"
+      notify: "Restart Forgejo"
+
+    - name: "Enable Forgejo"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        enabled: true
+        name: "forgejo"
+        state: "started"
+
+    - name: "Serve Forgejo through nginx"
+      when: "forgejo_nginx_enabled | bool"
+      ansible.builtin.import_tasks: "nginx.yml"

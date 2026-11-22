@@ -92,5 +92,8 @@
     owner: "root"
     path: "/etc/ansible/facts.d"
     state: "directory"
+- name: "Add any addresses this host borrows from another"
+  ansible.builtin.import_tasks: "ip_alias.yml"
+
 - name: "Apply the WSL service policy"
   ansible.builtin.import_tasks: "wsl_services.yml"

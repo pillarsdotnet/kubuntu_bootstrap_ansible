@@ -16,6 +16,10 @@
     # Off for every host but the one that asked for it; see
     # roles/diagnostics/defaults/main.yml.
     - "diagnostics"
+    # Also off everywhere by default. Exists so the forge can be stood up on
+    # a second host while its usual one is unavailable; see
+    # roles/forgejo/defaults/main.yml.
+    - "forgejo"
     - "printing"
     - "terminal"
   post_tasks:

@@ -4,6 +4,13 @@
     name:
       - "cups"
       - "cups-client"
+      # Named explicitly because the estate depends on it and has not been
+      # saying so: the USB printer is served as ipp://localhost:65431 by
+      # ipp-usb, which udev starts when the printer appears. It arrives as a
+      # recommendation of other packages on a desktop install, so it has been
+      # present by luck rather than by declaration - and a host that acquires
+      # the printer without it has CUPS running and no queue.
+      - "ipp-usb"
     state: "present"
   tags:
     - "requires_systemd"

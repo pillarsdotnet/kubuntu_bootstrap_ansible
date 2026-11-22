@@ -104,3 +104,9 @@ bootstrap_wsl1_incompatible_tags:
   - "requires_gui"
   - "requires_netfilter"
   - "requires_systemd"
+
+# Extra IPv4 addresses, in CIDR form, to carry on the primary connection in
+# addition to its DHCP lease - for taking over another host's address while
+# that host is away. See roles/bootstrap/tasks/ip_alias.yml, which refuses to
+# add an address something else is already answering on.
+bootstrap_extra_addresses: []
