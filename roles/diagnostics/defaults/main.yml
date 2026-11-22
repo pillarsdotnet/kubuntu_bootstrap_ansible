@@ -89,10 +89,17 @@ diagnostics_node_exporter_textfile_dir: "/var/lib/prometheus/node-exporter"
 # the throttle counters - none of which sysstat collects, and the RAPL
 # counter among them unreadable except as root.
 #
-# Each sample is fdatasync'd before the next is taken, so the history is
-# durable rather than merely frequent: the reset this exists for takes power
-# away without warning, and an unsynced sample is a lost one.
-diagnostics_sample_interval: "1s"
+# Seconds, as a number the daemon sleeps to - not a systemd timespan. It was
+# one until 2026-11-22, when the sampler stopped being a timer-driven
+# oneshot: OnUnitActiveSec=1s measures from the end of the previous run, so
+# the interval was really a second plus the run plus the accuracy window.
+# Measured over 24980 samples it came to 2.17 s on average and 7.5 s at
+# worst, while the log was labelled per-second. The daemon sleeps to the
+# next absolute deadline instead, holds 1.000 s to within about 3 ms, and
+# counts any deadline it could not meet rather than quietly drifting.
+# Fractions are allowed; below about 0.1 s the fdatasync below starts to be
+# the limit.
+diagnostics_sample_interval: 1
 diagnostics_sample_log: "/var/log/diagnostics-sample.log"
 diagnostics_sample_log_keep: 7
 

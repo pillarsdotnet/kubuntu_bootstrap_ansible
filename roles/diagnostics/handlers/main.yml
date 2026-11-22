@@ -22,7 +22,7 @@
 - name: "Restart the sampler"
   ansible.builtin.systemd_service:
     daemon_reload: true
-    name: "diagnostics-sample.timer"
+    name: "diagnostics-sample"
     state: "restarted"
 
 # Changing /etc/kernel/cmdline has no effect until the loader entries are

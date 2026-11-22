@@ -2,15 +2,31 @@
 # Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
 #
 # Sample the sensors that matter to an unexplained hard reset and append them
-# to a history file, durably.
+# to a history file, durably, once per interval.
 #
-# Durability is the whole point. The reset this exists for takes power away
+# This is a daemon rather than a timer-driven oneshot, and the difference is
+# the whole point of it. A systemd timer with OnUnitActiveSec=1s does not
+# sample every second: it waits a second *after the previous run finished*,
+# then adds its own accuracy window and the cost of forking a service. The
+# first version of this script was scheduled exactly that way and measured
+# 2.17 s between samples on average, with a worst case of 7.5 s - so the
+# log claimed a 1-second resolution it did not have, in the one window where
+# resolution is the only thing that matters. A loop that sleeps to the next
+# absolute deadline holds the nominal rate instead, and says so when it
+# cannot.
+#
+# Durability is the other half. The reset this exists for takes power away
 # without warning, so a sample that is only in the page cache is a sample
 # lost: Linux holds dirty pages for up to vm.dirty_expire_centisecs, 30
 # seconds by default. Each line is therefore followed by fdatasync on the
 # file, which is what `sync --data` does, so a completed sample has reached
 # the disk before the next one is taken. The cost is one small synchronous
 # write per interval.
+#
+# The log is opened by path for every line, not held open, so logrotate's
+# `create` can rename the file out from under a daemon that may run for
+# months and the next sample lands in the new one. Holding the descriptor
+# would keep appending to the rotated file forever.
 #
 # What is sampled, and why it is not already covered elsewhere:
 #
@@ -32,9 +48,17 @@
 # node-exporter reads the directory on its own schedule.
 set -euo pipefail
 
-log="${1:?usage: $0 <history-file> [textfile-collector-dir]}"
+# C for the numeric locale, UTC for the clock. Both matter to correctness
+# rather than taste: EPOCHREALTIME renders its fraction with the locale's
+# decimal separator, which awk would then read as an integer, and the
+# timestamps are UTC so they line up with the log already on disk. Setting
+# TZ here is also what lets printf do the formatting, saving two forks of
+# date(1) per sample.
+export LC_ALL=C TZ=UTC
+
+log="${1:?usage: $0 <history-file> [textfile-collector-dir] [interval-seconds]}"
 textfile_dir="${2:-}"
-state="/run/diagnostics-sample.state"
+interval="${3:-1}"
 
 # `sensors -u` groups subfeatures under a feature label, and feature labels
 # under a chip, by indentation:
@@ -44,86 +68,148 @@ state="/run/diagnostics-sample.state"
 #   Package id 0:              <- feature label: column 0, trailing colon
 #     temp1_input: 52.000      <- subfeature: indented
 #
-# Everything below scopes its read to one chip, because temp1_input exists on
+# Every read below is scoped to one chip, because temp1_input exists on
 # nearly every chip and an unscoped match picks whichever sorted first.
-chip_scope='
+#
+# One awk for the whole sample, including the watts arithmetic, because bash
+# has no floating point and this is the per-second path: it is handed the
+# previous sample's energy counter and timestamp and prints three lines -
+# "pkg hottest", the fan and thermistor string, and watts.
+# shellcheck disable=SC2016  # $1 and $2 are awk's fields, not the shell's.
+parse_sample='
   /^[^[:space:]]/ && $0 !~ /:$/ && $1 != "Adapter:" { chip = $0; next }
   /^[^[:space:]].*:$/ { label = $0; sub(/:$/, "", label); gsub(/[ \t]+/, "_", label); next }
+  chip == "coretemp-isa-0000" {
+    if (label == "Package_id_0" && $1 == "temp1_input:") pkg = sprintf("%.1f", $2)
+    if ($1 ~ /_input:$/ && $2 + 0 > hottest) hottest = $2 + 0
+  }
+  chip ~ /^nct668[0-9]/ {
+    if ($1 ~ /^fan[0-9]+_input:$/) {
+      f = $1; sub(/_input:$/, "", f)
+      fans = fans sprintf("%s=%.0f ", f, $2)
+    } else if ($1 ~ /^temp[0-9]+_input:$/) {
+      fans = fans sprintf("%s=%.1f ", label, $2)
+    }
+  }
+  END {
+    print (pkg == "" ? "NA" : pkg), (hottest > 0 ? sprintf("%.1f", hottest) : "NA")
+    print fans
+    # The counter wraps, so a negative delta is reported as NA rather than
+    # as a spike; so is the first sample, which has nothing to subtract.
+    if (e == "NA" || p == "" || q == "") { print "NA"; exit }
+    d = e - p; s = t - q
+    if (d < 0 || s <= 0) { print "NA"; exit }
+    printf "%.1f\n", (d / 1000000) / s
+  }
 '
 
-now_epoch="$(date +%s.%N)"
-sensors_out="$(mktemp)"
-trap 'rm -f "$sensors_out"' EXIT
-sensors -u 2>/dev/null > "$sensors_out" || true
+# Readied and then pinged, so systemd restarts the daemon if the loop wedges
+# - a blocked sensors(1) read, say. A monitor that is silently stuck is
+# worse than one that is absent, because the gap in the log reads like a
+# quiet machine. Skipped entirely when run by hand, outside systemd.
+notify() {
+  [ -n "${NOTIFY_SOCKET:-}" ] && systemd-notify "$@" || true
+}
 
-pkg="$(awk "$chip_scope"'
-  chip == "coretemp-isa-0000" && label == "Package_id_0" && $1 == "temp1_input:" {
-    printf "%.1f", $2; found = 1; exit
-  }
-  END { if (!found) print "NA" }
-' "$sensors_out")"
+prev_e=""
+prev_t=""
+missed=0
+written=0
+next_ping=0
 
-hottest="$(awk "$chip_scope"'
-  chip == "coretemp-isa-0000" && $1 ~ /_input:$/ { if ($2 + 0 > m) m = $2 + 0 }
-  END { if (m > 0) printf "%.1f", m; else print "NA" }
-' "$sensors_out")"
+notify --ready --status="sampling every ${interval}s"
 
-# Fan tachometers and the board thermistors, both from the Super I/O chip.
-# Labels are carried through so "PCH_CHIP" and "Diode_0_(curr)" stay
-# identifiable rather than becoming anonymous temp numbers.
-fans="$(awk "$chip_scope"'
-  chip ~ /^nct668[0-9]/ && $1 ~ /^fan[0-9]+_input:$/ {
-    f = $1; sub(/_input:$/, "", f); printf "%s=%.0f ", f, $2
-  }
-  chip ~ /^nct668[0-9]/ && $1 ~ /^temp[0-9]+_input:$/ { printf "%s=%.1f ", label, $2 }
-' "$sensors_out")"
+# The deadline advances by whole intervals from a fixed origin, so a sample
+# that runs long is absorbed rather than pushing every later sample back.
+deadline="${EPOCHREALTIME%%.*}"
 
-energy_uj="NA"
-[ -r /sys/class/powercap/intel-rapl:0/energy_uj ] &&
-  energy_uj="$(cat /sys/class/powercap/intel-rapl:0/energy_uj)"
+while true; do
+  now="$EPOCHREALTIME"
+  energy_uj="NA"
+  [ -r /sys/class/powercap/intel-rapl:0/energy_uj ] &&
+    read -r energy_uj < /sys/class/powercap/intel-rapl:0/energy_uj
 
-# Watts over the elapsed interval, from the previous sample's counter. The
-# counter wraps, so a negative delta is reported as NA rather than a spike.
-watts="NA"
-if [ -r "$state" ] && [ "$energy_uj" != "NA" ]; then
-  # shellcheck disable=SC2162
-  read prev_e prev_t < "$state" || true
-  watts="$(awk -v e="$energy_uj" -v p="${prev_e:-}" -v t="$now_epoch" -v q="${prev_t:-}" \
-    'BEGIN {
-       if (p == "" || q == "") { print "NA"; exit }
-       d = e - p; s = t - q
-       if (d < 0 || s <= 0) { print "NA"; exit }
-       printf "%.1f", (d / 1000000) / s
-     }')"
-fi
-printf '%s %s\n' "$energy_uj" "$now_epoch" > "$state"
+  sensors_out="$(sensors -u 2>/dev/null || true)"
+  parsed="$(
+    awk -v e="$energy_uj" -v p="${prev_e:-}" -v t="$now" -v q="${prev_t:-}" \
+      "$parse_sample" <<< "$sensors_out"
+  )"
+  { read -r pkg hottest; IFS= read -r fans; read -r watts; } <<< "$parsed"
 
-core_thr="$(cat /sys/devices/system/cpu/cpu0/thermal_throttle/core_throttle_count 2>/dev/null || echo NA)"
-pkg_thr="$(cat /sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count 2>/dev/null || echo NA)"
-read -r load1 load5 _ < /proc/loadavg
+  prev_e="$energy_uj"
+  prev_t="$now"
 
-# Appended as one line, then forced to disk. ISO-8601 with milliseconds, so
-# the last sample can be lined up against the journal and against sar.
-printf '%s pkg=%s hottest=%s watts=%s %score_thr=%s pkg_thr=%s load=%s/%s\n' \
-  "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
-  "$pkg" "$hottest" "$watts" "$fans" "$core_thr" "$pkg_thr" "$load1" "$load5" \
-  >> "$log"
-sync --data "$log"
+  core_thr="NA"
+  pkg_thr="NA"
+  read -r core_thr \
+    < /sys/devices/system/cpu/cpu0/thermal_throttle/core_throttle_count || true
+  read -r pkg_thr \
+    < /sys/devices/system/cpu/cpu0/thermal_throttle/package_throttle_count || true
+  read -r load1 load5 _ < /proc/loadavg
 
-if [ -n "$textfile_dir" ] && [ -d "$textfile_dir" ]; then
-  out="$textfile_dir/diagnostics.prom"
-  tmp="$(mktemp "$out.XXXXXX")"
-  {
-    echo "# HELP node_cpu_core_throttle_total Core thermal throttle events since boot."
-    echo "# TYPE node_cpu_core_throttle_total counter"
-    [ "$core_thr" != "NA" ] && echo "node_cpu_core_throttle_total{cpu=\"0\"} $core_thr"
-    echo "# HELP node_cpu_package_throttle_total Package throttle events since boot."
-    echo "# TYPE node_cpu_package_throttle_total counter"
-    [ "$pkg_thr" != "NA" ] && echo "node_cpu_package_throttle_total{cpu=\"0\"} $pkg_thr"
-    echo "# HELP node_rapl_package_watts Package power over the last sample interval."
-    echo "# TYPE node_rapl_package_watts gauge"
-    [ "$watts" != "NA" ] && echo "node_rapl_package_watts $watts"
-  } > "$tmp"
-  chmod 0644 "$tmp"
-  mv -f "$tmp" "$out"
-fi
+  # ISO-8601 with milliseconds, so the last sample before a reset can be
+  # lined up against the journal and against sar. Built from EPOCHREALTIME
+  # rather than date(1): the seconds go through printf's own strftime and
+  # the fraction is truncated to three digits.
+  frac="${now#*.}000"
+  printf '%(%Y-%m-%dT%H:%M:%S)T.%sZ pkg=%s hottest=%s watts=%s %score_thr=%s pkg_thr=%s load=%s/%s\n' \
+    "${now%%.*}" "${frac:0:3}" \
+    "$pkg" "$hottest" "$watts" "$fans" "$core_thr" "$pkg_thr" "$load1" "$load5" \
+    >> "$log"
+  sync --data "$log"
+  written=$((written + 1))
+
+  if [ -n "$textfile_dir" ] && [ -d "$textfile_dir" ]; then
+    out="$textfile_dir/diagnostics.prom"
+    # A fixed temporary name, not mktemp: there is one writer, and the file
+    # is renamed into place so node-exporter never reads a partial one.
+    tmp="$out.new"
+    {
+      echo "# HELP node_cpu_core_throttle_total Core thermal throttle events since boot."
+      echo "# TYPE node_cpu_core_throttle_total counter"
+      [ "$core_thr" != "NA" ] && echo "node_cpu_core_throttle_total{cpu=\"0\"} $core_thr"
+      echo "# HELP node_cpu_package_throttle_total Package throttle events since boot."
+      echo "# TYPE node_cpu_package_throttle_total counter"
+      [ "$pkg_thr" != "NA" ] && echo "node_cpu_package_throttle_total{cpu=\"0\"} $pkg_thr"
+      echo "# HELP node_rapl_package_watts Package power over the last sample interval."
+      echo "# TYPE node_rapl_package_watts gauge"
+      [ "$watts" != "NA" ] && echo "node_rapl_package_watts $watts"
+      # The sampler's own health. A scrape that sees the timestamp stop
+      # advancing knows the history has a hole in it, which is otherwise
+      # indistinguishable from an idle machine.
+      echo "# HELP node_diagnostics_sample_timestamp_seconds When the last sample was taken."
+      echo "# TYPE node_diagnostics_sample_timestamp_seconds gauge"
+      echo "node_diagnostics_sample_timestamp_seconds $now"
+      echo "# HELP node_diagnostics_samples_total Samples written since the daemon started."
+      echo "# TYPE node_diagnostics_samples_total counter"
+      echo "node_diagnostics_samples_total $written"
+      echo "# HELP node_diagnostics_samples_missed_total Deadlines passed before the sample was ready."
+      echo "# TYPE node_diagnostics_samples_missed_total counter"
+      echo "node_diagnostics_samples_missed_total $missed"
+    } > "$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$out"
+  fi
+
+  # Half of WatchdogSec, so a missed ping means the loop really is stuck
+  # rather than merely slow.
+  if [ "${EPOCHSECONDS}" -ge "$next_ping" ]; then
+    notify --status="${written} samples, ${missed} missed" WATCHDOG=1
+    next_ping=$((EPOCHSECONDS + 10))
+  fi
+
+  # Sleep to the next absolute deadline. If the sample took longer than an
+  # interval the deadline is already past: skip the ones that cannot be
+  # taken, count them, and carry on in phase rather than running flat out
+  # trying to catch up.
+  deadline="$(
+    awk -v d="$deadline" -v i="$interval" -v n="$EPOCHREALTIME" 'BEGIN {
+      skipped = 0
+      do { d += i; if (d <= n) skipped++ } while (d <= n)
+      printf "%.6f %d %.6f", d, skipped, d - n
+    }'
+  )"
+  read -r deadline skipped delay <<< "$deadline"
+  missed=$((missed + skipped))
+  sleep "$delay"
+done

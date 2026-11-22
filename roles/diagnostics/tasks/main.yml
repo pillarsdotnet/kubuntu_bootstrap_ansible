@@ -151,34 +151,62 @@
         src: "diagnostics-sample"
       notify: "Restart the sampler"
 
-    - name: "Run the sampler as a unit"
+    # The sampler used to be a oneshot driven by a timer, and the timer has
+    # to go before the service is redefined: both carry the same unit name,
+    # so a timer left in place would keep trying to activate what is now a
+    # long-running daemon. Stopped before the new unit is written, not after.
+    - name: "Look for the timer the sampler used to be scheduled from"
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/diagnostics-sample.timer"
+      register: "diagnostics_old_timer"
+
+    - name: "Retire that timer"
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: "diagnostics-sample.timer"
+        state: "stopped"
+      when: "diagnostics_old_timer.stat.exists"
+
+    - name: "Remove the timer unit"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/diagnostics-sample.timer"
+        state: "absent"
+      notify: "Reload the systemd manager configuration"
+
+    # Type=notify with a watchdog, because the failure this instrument exists
+    # to catch is indistinguishable from the instrument itself dying: a gap
+    # in the history reads like a quiet machine either way. The daemon pings
+    # at half the watchdog interval, so a loop wedged on a sensor read is
+    # restarted rather than silently stopping. NotifyAccess=all because the
+    # ping comes from systemd-notify, a child, not from the main pid.
+    #
+    # Nice and the I/O priority are not tuning for its own sake: the load
+    # under investigation reached a one-minute average of 103, and a sampler
+    # that gets starved exactly then loses the resolution it was raised for.
+    - name: "Run the sampler as a daemon"
       ansible.builtin.copy:
         content: |
           # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
           [Unit]
           Description=Sample temperatures, power and throttle counters durably
+          After=prometheus-node-exporter.service
           [Service]
-          Type=oneshot
-          ExecStart=/usr/local/sbin/diagnostics-sample {{ diagnostics_sample_log }} {{ diagnostics_node_exporter_textfile_dir }}
-        dest: "/etc/systemd/system/diagnostics-sample.service"
-        group: "root"
-        mode: "u=rw,g=r,o=r"
-        owner: "root"
-      notify: "Restart the sampler"
-
-    - name: "Schedule the sampler"
-      ansible.builtin.copy:
-        content: |
-          # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
-          [Unit]
-          Description=Sample the extra metrics
-          [Timer]
-          OnBootSec={{ diagnostics_sample_interval }}
-          OnUnitActiveSec={{ diagnostics_sample_interval }}
-          AccuracySec=1s
+          Type=notify
+          NotifyAccess=all
+          WatchdogSec=30s
+          ExecStart=/usr/local/sbin/diagnostics-sample \
+            {{ diagnostics_sample_log }} \
+            {{ diagnostics_node_exporter_textfile_dir }} \
+            {{ diagnostics_sample_interval }}
+          Restart=always
+          RestartSec=1s
+          Nice=-5
+          IOSchedulingClass=best-effort
+          IOSchedulingPriority=0
+          OOMScoreAdjust=-500
           [Install]
-          WantedBy=timers.target
-        dest: "/etc/systemd/system/diagnostics-sample.timer"
+          WantedBy=multi-user.target
+        dest: "/etc/systemd/system/diagnostics-sample.service"
         group: "root"
         mode: "u=rw,g=r,o=r"
         owner: "root"
@@ -192,7 +220,7 @@
         state: "started"
       loop:
         - "prometheus-node-exporter"
-        - "diagnostics-sample.timer"
+        - "diagnostics-sample"
 
     # The only task here that touches boot configuration, and the only one
     # that needs a reboot before it does anything. /etc/kernel/cmdline is the
