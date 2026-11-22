@@ -173,6 +173,16 @@
         state: "absent"
       notify: "Reload the systemd manager configuration"
 
+    # The oneshot carried the previous sample's energy counter between runs
+    # in a file, because it had nowhere else to put it; the daemon holds it
+    # in memory. Removed rather than left to expire at the next boot: a
+    # timestamped file under /run reads as live state, and the next person to
+    # look at it would have no way to tell it had been dead for months.
+    - name: "Remove the state file the oneshot used to carry between runs"
+      ansible.builtin.file:
+        path: "/run/diagnostics-sample.state"
+        state: "absent"
+
     # Type=notify with a watchdog, because the failure this instrument exists
     # to catch is indistinguishable from the instrument itself dying: a gap
     # in the history reads like a quiet machine either way. The daemon pings
