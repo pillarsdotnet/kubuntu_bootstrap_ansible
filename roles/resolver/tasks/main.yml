@@ -1,0 +1,145 @@
+---
+# See defaults/main.yml. Every site-specific value is expected from host_vars.
+- name: "Point this host at chosen nameservers"
+  when: "resolver_enabled | bool"
+  block:
+    - name: "Fail early without nameservers to point at"
+      ansible.builtin.assert:
+        fail_msg: >-
+          resolver_servers is empty. Applying this role with no nameservers
+          would leave the host unable to resolve anything, and it would do so
+          after /etc/hosts had already been reduced.
+        quiet: true
+        that:
+          - "resolver_servers | length > 0"
+
+    - name: "Configure the system resolver"
+      when: "resolver_manage_global | bool"
+      ansible.builtin.template:
+        dest: "/etc/systemd/resolved.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "resolved.conf.j2"
+      notify: "Restart the system resolver"
+
+    # NetworkManager keeps its own per-link servers, and systemd-resolved
+    # prefers those of the default-route link over the global ones. Leaving
+    # them unset here is how a host ends up with a correct resolved.conf and
+    # a query path that ignores it.
+    - name: "Pin the nameservers on the network connection too"
+      when: "resolver_nm_connection | length > 0"
+      block:
+        - name: "Find the device the connection is on"
+          ansible.builtin.command:
+            argv:
+              - "nmcli"
+              - "-t"
+              - "-f"
+              - "GENERAL.DEVICES"
+              - "connection"
+              - "show"
+              - "{{ resolver_nm_connection }}"
+          changed_when: false
+          # Read-only, so it runs in check mode too. Without this, check mode
+          # skips it and everything that reads its result, and the run reports
+          # far less than the role would really change.
+          check_mode: false
+          register: "resolver_nm_device_raw"
+
+        - name: "Name the device"
+          ansible.builtin.set_fact:
+            resolver_nm_device: >-
+              {{ resolver_nm_device_raw.stdout | regex_replace('^[^:]*:', '') | trim }}
+
+        - name: "Read what the connection currently uses"
+          ansible.builtin.command:
+            argv:
+              - "nmcli"
+              - "-t"
+              - "-f"
+              - "ipv4.dns,ipv4.dns-search,ipv4.ignore-auto-dns"
+              - "connection"
+              - "show"
+              - "{{ resolver_nm_connection }}"
+          changed_when: false
+          check_mode: false
+          register: "resolver_nm_current"
+
+        - name: "Set the nameservers on the connection"
+          ansible.builtin.command:
+            argv:
+              - "nmcli"
+              - "connection"
+              - "modify"
+              - "{{ resolver_nm_connection }}"
+              - "ipv4.dns"
+              - "{{ resolver_servers | join(',') }}"
+          changed_when: true
+          notify: "Reapply the network connection"
+          when: >-
+            'ipv4.dns:' ~ (resolver_servers | join(','))
+            not in resolver_nm_current.stdout
+
+        - name: "Set the search domains on the connection"
+          ansible.builtin.command:
+            argv:
+              - "nmcli"
+              - "connection"
+              - "modify"
+              - "{{ resolver_nm_connection }}"
+              - "ipv4.dns-search"
+              - "{{ resolver_search_domains | join(',') }}"
+          changed_when: true
+          notify: "Reapply the network connection"
+          when:
+            - "resolver_search_domains | length > 0"
+            - >-
+              'ipv4.dns-search:' ~ (resolver_search_domains | join(','))
+              not in resolver_nm_current.stdout
+
+        # Without this the lease's own servers are merged in, which on a
+        # split-horizon network may be the very upstream being avoided.
+        - name: "Stop the lease from adding its own nameservers"
+          ansible.builtin.command:
+            argv:
+              - "nmcli"
+              - "connection"
+              - "modify"
+              - "{{ resolver_nm_connection }}"
+              - "ipv4.ignore-auto-dns"
+              - "yes"
+          changed_when: true
+          notify: "Reapply the network connection"
+          when: "'ipv4.ignore-auto-dns:yes' not in resolver_nm_current.stdout"
+
+    # Applied before /etc/hosts is reduced and before the names are checked,
+    # so the check measures the configuration this role just installed rather
+    # than whatever was in place beforehand.
+    - name: "Apply the resolver changes before relying on them"
+      ansible.builtin.meta: "flush_handlers"
+
+    - name: "Reduce the hosts file to what must not depend on the network"
+      when: "resolver_manage_hosts | bool"
+      ansible.builtin.template:
+        backup: true
+        dest: "/etc/hosts"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "hosts.j2"
+
+    # The role proves it worked rather than reporting that it ran. A resolver
+    # change is easy to get subtly wrong and the symptom can be a single
+    # failing name, so the list should include at least one short name.
+    - name: "Check that the names given still resolve"
+      ansible.builtin.command:
+        argv: ["getent", "ahostsv4", "{{ item }}"]
+      changed_when: false
+      # Runs in check mode too. A check run that skips the only task which
+      # would notice a broken resolver reports success for the one outcome
+      # worth checking.
+      check_mode: false
+      loop: "{{ resolver_verify_names }}"
+      register: "resolver_verified"
+      failed_when: "resolver_verified.rc != 0 or resolver_verified.stdout | length == 0"

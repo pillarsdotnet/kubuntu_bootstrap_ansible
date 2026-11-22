@@ -1,0 +1,94 @@
+---
+# Point a host at a chosen set of nameservers and stop carrying a private copy
+# of the names they serve.
+#
+# Every value here is empty on purpose. The addresses, connection names and
+# domains of a particular network are site configuration, not role
+# configuration, and this repository is mirrored publicly - so they belong in
+# a host_vars file that is not committed. The examples in comments use the
+# RFC 5737 documentation range and a made-up domain for the same reason.
+resolver_enabled: false
+
+# Nameservers, in preference order. Required when the role is enabled.
+#
+#   resolver_servers:
+#     - "192.0.2.1"
+#
+# Resist the temptation to append a public resolver as a fallback. On a
+# network doing split-horizon resolution, a public server answers the same
+# internal name with the external address, so a fallback does not degrade
+# gracefully - it silently returns a different answer, and only sometimes.
+# Failing to resolve is the better outcome because it is diagnosable.
+resolver_servers: []
+
+# Real search domains, appended to names that have no dot.
+#
+#   resolver_search_domains: ["lan"]
+#
+# This is the setting most likely to be got wrong, and the failure is subtle.
+# systemd-resolved will not send a single-label name to a unicast DNS server
+# at all - it treats such names as link-local and answers them from mDNS or
+# not at all. So a bare `hostname` resolves only if a search domain turns it
+# into `hostname.lan` before the query leaves the machine. A routing-only
+# domain (below) does not do that: it directs queries for a domain to these
+# servers, but a bare name never becomes part of that domain, so it is never
+# asked. Hosts whose short names must work need this list, not that one.
+resolver_search_domains: []
+
+# Domains routed to these servers without being added to the search path,
+# rendered with the leading "~" that systemd-resolved expects.
+#
+#   resolver_routing_domains: ["internal.example"]
+#
+# Use for zones whose names are already fully qualified, so that queries for
+# them never leak to an upstream that would answer differently.
+resolver_routing_domains: []
+
+# Whether to write the nameservers into /etc/systemd/resolved.conf, which
+# applies to the host wherever it is.
+#
+# True suits a machine that stays on one network. Set it false for a portable
+# one: a global server that only exists on the home network is dead weight
+# everywhere else, and the search domain that goes with it would be appended
+# to every lookup on a network where it means nothing. A portable host should
+# carry these settings on the connection instead, which is what
+# resolver_nm_connection does - scoped to the network they describe.
+resolver_manage_global: true
+
+# A NetworkManager connection whose per-link DNS should also be pinned, by
+# name as `nmcli connection show` prints it. Empty leaves NetworkManager
+# alone.
+#
+# Worth setting even when the global configuration is right, because the two
+# are separate and systemd-resolved prefers the per-link servers of the
+# default-route link. A host can therefore have a correct resolved.conf and
+# still send every query somewhere else.
+#
+# The search domains above are applied to this connection too, so a portable
+# host gets them only while attached to the network they belong to.
+resolver_nm_connection: ""
+
+# Whether to own /etc/hosts. False leaves it untouched.
+#
+# When true the file is reduced to the loopback entries plus whatever
+# resolver_hosts_extra adds, on the grounds that anything the nameservers
+# already answer is a second copy that nobody will remember to update - and
+# the failure mode of a stale copy is a host quietly reaching the wrong
+# address while every other host reaches the right one.
+resolver_manage_hosts: false
+
+# Lines appended verbatim to /etc/hosts when resolver_manage_hosts is true.
+# For entries that genuinely must resolve without the network: an installer
+# address, a host that answers before DNS is up.
+resolver_hosts_extra: []
+
+# Names the role resolves after applying everything, failing if any of them
+# does not answer.
+#
+#   resolver_verify_names: ["short-name", "fully.qualified.example"]
+#
+# Include at least one single-label name and one fully qualified one. The
+# search-domain mistake described above passes a fully qualified test and
+# fails a bare one, so a test list containing only the former looks healthy
+# while short names are broken.
+resolver_verify_names: []

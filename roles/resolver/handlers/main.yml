@@ -1,0 +1,14 @@
+---
+- name: "Restart the system resolver"
+  ansible.builtin.systemd_service:
+    name: "systemd-resolved"
+    state: "restarted"
+
+# reapply, not `connection up`. Bringing a connection up deactivates and
+# reactivates it, which on a wireless link means reassociating - dropping
+# every established socket including the one this play is running over.
+# reapply pushes the changed settings onto the live device instead.
+- name: "Reapply the network connection"
+  ansible.builtin.command:
+    argv: ["nmcli", "device", "reapply", "{{ resolver_nm_device }}"]
+  changed_when: true

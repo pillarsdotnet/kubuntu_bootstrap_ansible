@@ -1,0 +1,19 @@
+# Managed by kubuntu_bootstrap_ansible (roles/resolver).
+#
+# No public resolver is listed as a fallback, deliberately. Where the
+# nameservers below answer an internal name with an internal address and a
+# public one would answer it with an external address, a fallback does not
+# degrade gracefully - it returns a different answer, intermittently.
+{% if resolver_search_domains | length > 0 %}
+#
+# Domains without a leading "~" are search domains, and that is what makes
+# single-label names work: systemd-resolved does not send a name with no dot
+# to a unicast server at all, so a bare name resolves only once a search
+# domain has qualified it.
+{% endif %}
+[Resolve]
+DNS={{ resolver_servers | join(' ') }}
+{% set domains = resolver_search_domains + (resolver_routing_domains | map('regex_replace', '^', '~') | list) %}
+{% if domains | length > 0 %}
+Domains={{ domains | join(' ') }}
+{% endif %}

@@ -1,0 +1,25 @@
+# Managed by kubuntu_bootstrap_ansible (roles/resolver).
+#
+# Local names come from the nameservers in /etc/systemd/resolved.conf. Entries
+# here would be a second copy of those records, and a second copy that nobody
+# updates is how one host comes to reach the wrong address while every other
+# host reaches the right one.
+{% if resolver_hosts_extra | length == 0 %}
+#
+# The local hostname is not listed. A 127.0.1.1 entry for it is the
+# distribution default and is usually harmless, but it breaks the case where
+# something on the host connects to its own name and finds a service bound to
+# the real address rather than to loopback.
+{% else %}
+#
+# The entries below the loopback block are the ones declared to be worth
+# keeping locally, because they must resolve without the network or because
+# they do not exist in it.
+{% endif %}
+127.0.0.1	localhost
+::1		localhost ip6-localhost ip6-loopback
+ff02::1		ip6-allnodes
+ff02::2		ip6-allrouters
+{% for line in resolver_hosts_extra %}
+{{ line }}
+{% endfor %}

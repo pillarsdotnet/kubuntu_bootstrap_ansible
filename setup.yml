@@ -8,6 +8,10 @@
   hosts: all
   gather_facts: true
   roles:
+    # First: the roles after this one install packages and reach registries,
+    # so name resolution should be settled before they run. Off everywhere by
+    # default; see roles/resolver/defaults/main.yml.
+    - "resolver"
     - "sources"
     # Must follow "sources", which installs docker.io. A no-op on every host
     # that does not set docker_daemon_config; see roles/docker/defaults.
