@@ -92,6 +92,9 @@
     owner: "root"
     path: "/etc/ansible/facts.d"
     state: "directory"
+- name: "Hold services this host should not run"
+  ansible.builtin.import_tasks: "disabled_services.yml"
+
 - name: "Add any addresses this host borrows from another"
   ansible.builtin.import_tasks: "ip_alias.yml"
 

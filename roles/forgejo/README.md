@@ -129,8 +129,11 @@ Two things worth knowing before setting it:
   address while it holds it. Harmless if it serves nothing there, but worth
   confirming rather than assuming.
 
-One more: `dnsmasq` on `homelab` answers on 10.0.0.2 with `host-record`
-entries for `forgejo`, `books`, `game`, `k8scp` and `cp`. The host `acermagic`
-resolves through the router at 10.0.0.1 and most of the estate probably does
-too, but anything pointed at 10.0.0.2 for name service loses those entries
-when `homelab` goes. Check before you need them.
+Name resolution is no longer a concern here. Split-horizon resolution moved to
+the router at 10.0.0.1 on 2026-11-22 and `dnsmasq` on `homelab` is masked, so
+nothing is lost when that host goes away. Verified at the time: all three LAN
+hosts resolve `forgejo.bobbalisa.org`, `books.bobbalisa.org` and `k8scp` to
+10.0.0.2 without it.
+
+One caveat if a new host joins: the router does not answer `k8scp` or `cp`.
+Those come from `/etc/hosts`, which the existing hosts already carry.

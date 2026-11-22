@@ -110,3 +110,8 @@ bootstrap_wsl1_incompatible_tags:
 # that host is away. See roles/bootstrap/tasks/ip_alias.yml, which refuses to
 # add an address something else is already answering on.
 bootstrap_extra_addresses: []
+
+# systemd units this host should not run, by bare name without the .service
+# suffix. Stopped, disabled and masked; units that are not installed here are
+# reported and skipped. See roles/bootstrap/tasks/disabled_services.yml.
+bootstrap_disabled_services: []

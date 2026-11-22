@@ -1,0 +1,56 @@
+---
+# Units this host should not run, even though they are installed.
+#
+# Stopped, disabled and masked rather than merely stopped. Disabling alone
+# leaves a unit that a package upgrade, a dependency or a socket can start
+# again, and the symptom of that is a service quietly coming back weeks later
+# with nobody connecting it to the upgrade that did it. Masking says no to all
+# three.
+#
+# The case it was written for: `dnsmasq` on homelab served local names on
+# 10.0.0.2 until split-horizon resolution moved to the router at 10.0.0.1.
+# Leaving a second resolver running on the network is not neutral - whichever
+# one a client happens to ask wins, so the two have to be kept in agreement
+# forever, and the day they drift the failure looks like an intermittent
+# network rather than a stale record.
+- name: "Hold services this host should not run"
+  when: "bootstrap_disabled_services | length > 0"
+  block:
+    # Read first, act second: masking a unit that was never installed creates
+    # a dangling symlink to /dev/null that a later install then trips over,
+    # and the package reports success while the service refuses to start.
+    - name: "Discover which of them are actually installed"
+      ansible.builtin.command:
+        argv: ["systemctl", "list-unit-files", "--no-legend", "--no-pager"]
+      changed_when: false
+      check_mode: false
+      register: "bootstrap_disabled_unit_files"
+
+    - name: "Select the installed ones"
+      ansible.builtin.set_fact:
+        bootstrap_disabled_present: >-
+          {{ bootstrap_disabled_services
+             | select('in', bootstrap_disabled_unit_files.stdout
+                            | regex_findall('^(\S+)\.service', multiline=True))
+             | list }}
+
+    - name: "Report any that are not installed here"
+      ansible.builtin.debug:
+        msg: >-
+          Not installed on this host, so nothing to hold:
+          {{ bootstrap_disabled_services | difference(bootstrap_disabled_present) | join(', ') }}
+      when:
+        - "bootstrap_disabled_services | difference(bootstrap_disabled_present) | length > 0"
+
+    - name: "Stop and disable them"
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: "{{ item }}"
+        state: "stopped"
+      loop: "{{ bootstrap_disabled_present }}"
+
+    - name: "Mask them, so nothing starts them again"
+      ansible.builtin.systemd_service:
+        masked: true
+        name: "{{ item }}"
+      loop: "{{ bootstrap_disabled_present }}"
