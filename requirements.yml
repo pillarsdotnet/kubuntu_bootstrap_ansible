@@ -1,0 +1,22 @@
+---
+# Ansible collections the roles here call into. Pinned like requirements.txt,
+# so CI and a fresh venv resolve the same versions rather than whatever is
+# current the day they run.
+#
+# These are needed by the *lint* environment as much as at run time. On a
+# workstation ansible comes from apt, which ships the collections, so a
+# missing entry here is invisible locally and fails only in CI, where the
+# venv carries ansible-core alone. That is how it was found: ansible-lint
+# reported "couldn't resolve module/action 'community.general.modprobe'" on
+# run 638 while every other hook passed. The two ansible.posix modules had
+# been emitting "Unable to load module" warnings for some time before that,
+# for the same reason - an unknown module is fatal to the syntax check, while
+# unknown module *options* only warn, so the gap hid until a task used a
+# module whose absence broke the check itself.
+collections:
+  - name: "ansible.posix"
+    version: "2.2.2"
+  - name: "community.crypto"
+    version: "3.3.0"
+  - name: "community.general"
+    version: "13.2.0"

@@ -461,7 +461,15 @@ and `systemd` support). See the [WSL2 installation guide](https://learn.microsof
 ```bash
 uv venv
 uv pip install -r requirements.txt
+.venv/bin/ansible-galaxy collection install -r requirements.yml
 ```
+
+The collection install matters even though `ansible` itself comes from the
+system package. The `venv` carries `ansible-core` alone, and `ansible-lint`
+resolves module names during its syntax check, so without the collections in
+`requirements.yml` it fails on the first non-builtin module it meets. A
+workstation hides this, because the `apt` package ships the collections
+already -- it shows up only in CI.
 
 Then run the linter over the whole repository:
 
