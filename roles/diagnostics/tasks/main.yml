@@ -346,7 +346,9 @@
     # mitigation works at all. Same shape as the power cap: a sysfs write does
     # not survive a reboot, so a unit reapplies it.
     - name: "Hold the core frequency ceiling across reboots"
-      when: "diagnostics_max_freq_mhz | int > 0"
+      when: >-
+        diagnostics_max_freq_mhz | int > 0
+        or diagnostics_no_turbo | bool
       block:
         - name: "Install the frequency cap script"
           ansible.builtin.copy:
@@ -358,18 +360,28 @@
           notify: "Restart the frequency cap unit"
 
         - name: "Install the frequency cap unit"
+          # Built here rather than inline in the template, which otherwise
+          # renders past any sensible line length. --no-turbo wins: see the
+          # script for why passing both produces a false failure.
+          vars:
+            diagnostics_freq_args: >-
+              {{ '--no-turbo' if diagnostics_no_turbo | bool
+                 else '--max-mhz ' ~ diagnostics_max_freq_mhz }}
+            diagnostics_freq_label: >-
+              {{ 'turbo disabled' if diagnostics_no_turbo | bool
+                 else diagnostics_max_freq_mhz ~ ' MHz' }}
           ansible.builtin.copy:
             content: |
               # Managed by kubuntu_bootstrap_ansible (roles/diagnostics).
               # See diagnostics_max_freq_mhz for why this exists and why it is
               # not the same thing as the RAPL power cap.
               [Unit]
-              Description=Cap core frequency at {{ diagnostics_max_freq_mhz }} MHz
+              Description=Cap core frequency: {{ diagnostics_freq_label }}
               ConditionPathIsReadWrite=/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
               [Service]
               Type=oneshot
               RemainAfterExit=yes
-              ExecStart=/usr/local/sbin/diagnostics-freq-cap {{ diagnostics_max_freq_mhz }}
+              ExecStart=/usr/local/sbin/diagnostics-freq-cap {{ diagnostics_freq_args }}
               [Install]
               WantedBy=multi-user.target
             dest: "/etc/systemd/system/diagnostics-freq-cap.service"

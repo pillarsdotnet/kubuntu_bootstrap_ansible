@@ -152,6 +152,27 @@ diagnostics_rapl_pl2_watts: 0
 # are not power-limited, roughly that much on build time.
 diagnostics_max_freq_mhz: 0
 
+# Disable turbo entirely, pinning every core to its base frequency, reapplied
+# at every boot.
+#
+# The furthest the frequency lever goes without touching firmware, and it
+# supersedes diagnostics_max_freq_mhz: with turbo off intel_pstate clamps the
+# policy maximum to the base frequency, so a higher per-core ceiling would be
+# accepted, silently clamped, and then read back as a failure. The script
+# therefore ignores the ceiling when this is set, and says so rather than
+# appearing to apply both.
+#
+# Measured on this part: base 3200 MHz against 5700 on the ordinary P-cores
+# and 6000 on the two Turbo Boost Max 3.0 favoured ones, so roughly a 44%
+# reduction in single-core clock. That is a severe cost, and it is here
+# because a 5000 MHz ceiling was measured and was not enough - the host reset
+# at 93 W and 59 C with that ceiling in force.
+#
+# Only applied when true; false leaves the setting alone rather than forcing
+# turbo back on, so it cannot override a decision made in firmware or by
+# hand. To revert, set it false and reboot - no_turbo defaults to 0 at boot.
+diagnostics_no_turbo: false
+
 # Reverse-tunnel this host's node-exporter to the named inventory host, which
 # then scrapes it on its own loopback. "" disables the tunnel.
 #

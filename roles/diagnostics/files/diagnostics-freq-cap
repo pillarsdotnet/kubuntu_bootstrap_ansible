@@ -1,35 +1,89 @@
 #!/bin/bash
 # Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
 #
-# Cap the maximum frequency of every core whose hardware maximum exceeds the
-# ceiling, and verify the write took.
+# Lower the frequency this processor is allowed to request, and verify it took.
 #
-# This is a different lever from the RAPL power caps, and for the fault under
-# investigation it is the load-bearing one. Measured on homelab 2026-11-22
-# under real build load: the busy cores held 5561-5614 MHz while the package
-# drew 112 W mean against a 150 W PL1, so the power ceiling never engaged and
-# the cores sat near the top of the voltage/frequency curve throughout. The
-# second reset that day occurred at 88.8 W with those caps in force, for the
-# same reason - a power ceiling cannot bind on a workload that is not asking
-# for the power.
+# Two mechanisms, because they are not the same lever:
 #
-# Raptor Lake Vmin Shift degradation is a deficit of voltage margin at a
-# requested frequency rather than of thermal or current headroom. So the
-# mitigation that matches the mechanism is to stop requesting the frequency.
+#   --max-mhz N   caps scaling_max_freq on every core whose hardware maximum
+#                 exceeds N. Keeps turbo, moves the ceiling.
+#   --no-turbo    disables turbo altogether through intel_pstate, pinning
+#                 every core to its base frequency.
 #
-# Cores whose hardware maximum is already at or below the ceiling are skipped
-# rather than written, which on this part means the E-cores (4400 MHz) are
-# left alone and only the P-cores (5700, and 6000 on the two Turbo Boost
-# Max 3.0 favoured cores) are touched. That falls out of the comparison
-# instead of being hardcoded, so it stays correct on another machine.
+# This exists because the RAPL power caps do not reach the fault it was built
+# for. Measured on homelab 2026-11-22 under real build load: the busy cores
+# held 5561-5614 MHz while the package drew 112 W mean against a 150 W
+# sustained ceiling, so the power ceiling never engaged. The host then reset
+# three times in twenty-seven minutes - at 224 W and 96 C, at 88.8 W and 92 C,
+# and at 93 W and 59 C with a 5000 MHz ceiling in force and measured. Vmin
+# Shift degradation is a shortfall of voltage margin at a requested frequency,
+# so the lever that matches it is frequency, and --no-turbo is the furthest
+# that lever goes without touching firmware.
+#
+# The two options are mutually exclusive in effect, and combining them without
+# care produces a false failure. With turbo disabled, intel_pstate clamps the
+# policy maximum to the base frequency - 3200 MHz on this part - so a write of
+# 5000000 to scaling_max_freq is accepted, silently clamped, and reads back as
+# 3200000. The read-back check below would then call that a failure and the
+# unit would die, having actually applied a stricter cap than was asked for.
+# So --no-turbo wins and --max-mhz is skipped, out loud.
 set -euo pipefail
 
-mhz="${1:?usage: $0 <max-mhz>}"
-khz=$((mhz * 1000))
+pstate="/sys/devices/system/cpu/intel_pstate"
+max_mhz=0
+no_turbo=0
+
+usage() {
+  echo "usage: $0 [--max-mhz N] [--no-turbo]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --max-mhz)
+      [ $# -ge 2 ] || usage
+      max_mhz="$2"
+      shift 2
+      ;;
+    --no-turbo)
+      no_turbo=1
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
+
+if [ "$no_turbo" = 1 ]; then
+  if [ ! -w "$pstate/no_turbo" ]; then
+    echo "no_turbo is not writable; is this driver intel_pstate?" >&2
+    exit 1
+  fi
+  echo 1 > "$pstate/no_turbo"
+  got="$(cat "$pstate/no_turbo")"
+  if [ "$got" != 1 ]; then
+    printf 'FAILED: no_turbo wanted 1 got %s\n' "$got" >&2
+    exit 1
+  fi
+  base="$(cat /sys/devices/system/cpu/cpu0/cpufreq/base_frequency 2>/dev/null || echo 0)"
+  printf 'turbo disabled; cores pinned to base frequency %d MHz\n' "$((base / 1000))"
+  if [ "$max_mhz" -gt 0 ]; then
+    printf 'ignoring --max-mhz %d: turbo is off, so the policy maximum is already %d MHz\n' \
+      "$max_mhz" "$((base / 1000))"
+  fi
+  exit 0
+fi
+
+[ "$max_mhz" -gt 0 ] || { echo "nothing to do: no --max-mhz and no --no-turbo" >&2; exit 0; }
+
+khz=$((max_mhz * 1000))
 capped=0
 skipped=0
 failed=0
 
+# Which cores get touched falls out of comparing each hardware maximum to the
+# ceiling rather than being hardcoded, so it stays correct on another machine.
+# On this part that means the P-core threads are capped and the E-cores, below
+# the ceiling already, are left alone.
 for d in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
   [ -f "$d/scaling_max_freq" ] || continue
   hw="$(cat "$d/cpuinfo_max_freq")"
@@ -51,5 +105,5 @@ for d in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
 done
 
 printf 'capped %d core(s) to %d MHz, skipped %d already at or below, %d failed\n' \
-  "$capped" "$mhz" "$skipped" "$failed"
+  "$capped" "$max_mhz" "$skipped" "$failed"
 [ "$failed" -eq 0 ]
