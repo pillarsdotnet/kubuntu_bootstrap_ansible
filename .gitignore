@@ -1,6 +1,13 @@
 *~
 __pycache__
 
+# Collections ansible-lint installs from requirements.yml. It drops a
+# repo-local copy here (37 MB of vendored collections) alongside the one in
+# ~/.ansible, which is also why it warns that "another version of
+# community.general was found installed". Fetched, not authored - keep it out
+# of the history.
+/.ansible/
+
 # Host-specific, created locally per README (not shared across the fleet)
 /inventory.yml
 /host_vars/
