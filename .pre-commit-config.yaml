@@ -32,6 +32,27 @@ repos:
         language: "system"
         files: '\.j2$'
         require_serial: true
+      - id: "shellcheck"
+        name: "shellcheck"
+        # Installed from apt, not from the upstream pre-commit mirror: that
+        # mirror's newest tag is v0.9.0 and runs shellcheck in Docker, which
+        # the runner does not have. apt carries 0.11.0 and the Lint workflow
+        # installs the same package, so CI and a local run check the same
+        # rules with the same version - the same reasoning as ansible-lint.
+        #
+        # It found a real fault the day it was added, in the library
+        # repository: an apostrophe inside "${PEER:?set PEER to the peer's
+        # hostname}" parses under dash but not under bash, so that script
+        # died with "syntax error near unexpected token" eighty lines below
+        # the actual cause. One word fixed it and cleared 2 errors, 17
+        # warnings and 13 notes with it.
+        #
+        # The bashrc.d and zellij.d fragments carry "# shellcheck shell=bash"
+        # because they are sourced rather than executed, so there is no
+        # shebang to infer a dialect from.
+        entry: "shellcheck"
+        language: "system"
+        types: ["shell"]
       - id: "vale"
         name: "vale"
         # The PyPI "vale" package wraps the official binary, so pre-commit
