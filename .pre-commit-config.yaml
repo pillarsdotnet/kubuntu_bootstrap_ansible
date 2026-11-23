@@ -34,23 +34,15 @@ repos:
         require_serial: true
       - id: "shellcheck"
         name: "shellcheck"
-        # Installed from apt, not from the upstream pre-commit mirror: that
-        # mirror's newest tag is v0.9.0 and runs shellcheck in Docker, which
-        # the runner does not have. apt carries 0.11.0 and the Lint workflow
-        # installs the same package, so CI and a local run check the same
-        # rules with the same version - the same reasoning as ansible-lint.
-        #
-        # It found a real fault the day it was added, in the library
-        # repository: an apostrophe inside "${PEER:?set PEER to the peer's
-        # hostname}" parses under dash but not under bash, so that script
-        # died with "syntax error near unexpected token" eighty lines below
-        # the actual cause. One word fixed it and cleared 2 errors, 17
-        # warnings and 13 notes with it.
-        #
-        # The bashrc.d and zellij.d fragments carry "# shellcheck shell=bash"
-        # because they are sourced rather than executed, so there is no
-        # shebang to infer a dialect from.
-        entry: "shellcheck"
+                # --severity=warning, because the version is NOT pinned and cannot
+        # be: apt gives whatever the base image's Ubuntu release carries.
+        # This workstation had 0.11.0 and the runner image 0.9.0, and the
+        # difference broke a build -- 0.9.0 reports SC2015 on an `A && B || C`
+        # that 0.11.0 passes. Info and style findings drift between versions;
+        # warnings and errors do not, and they are where the real bugs were:
+        # the apostrophe that made a script unparseable under bash, and a
+        # glob left literal in an assignment, were both warnings.
+        entry: "shellcheck --severity=warning"
         language: "system"
         types: ["shell"]
       - id: "vale"
