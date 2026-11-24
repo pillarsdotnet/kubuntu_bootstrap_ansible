@@ -1,0 +1,147 @@
+---
+# Drive both CPU fans from one curve.
+#
+# The board's Super I/O chip is claimed by the in-tree nct6683 driver, which
+# exposes its PWM registers READ-ONLY: a write is refused even as root, so no
+# fan curve can be applied from Linux at all. Measured on homelab 2026-11-24:
+# /sys/class/hwmon/hwmon5/pwm1 is mode 0444, there is no pwm1_enable, and
+# `echo 80 | sudo tee pwm1` returns "Permission denied".
+#
+# The out-of-tree nct6687d driver reports the same sensors and adds write
+# support. Both bind the same ISA address, so the in-tree one is blacklisted
+# rather than coexisting.
+#
+# Why this is needed at all: this board puts the second CPU fan on a header
+# whose firmware default is full duty. pwm2 sat at 255 and its fan at
+# ~2040 RPM while pwm1 idled at 80 and 775 RPM -- the second tower screaming
+# while the first loafed. The fix is in BIOS or in Linux, and on this host
+# the BIOS is unreachable: its video output does not reach any attached
+# monitor, so setup can only be entered blind.
+
+- name: "Drive both CPU fans from one curve"
+  when: "fancontrol_enabled | bool"
+  block:
+    - name: "Install the build chain for the out-of-tree sensor driver"
+      ansible.builtin.apt:
+        name:
+          - dkms
+          - build-essential
+          - "linux-headers-{{ ansible_facts['kernel'] }}"
+          - fancontrol
+          - git
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: "Fetch the nct6687d source at a pinned commit"
+      ansible.builtin.git:
+        repo: "{{ fancontrol_nct6687d_repo }}"
+        dest: "/usr/src/nct6687d-git"
+        version: "{{ fancontrol_nct6687d_commit }}"
+        depth: 1
+      register: fancontrol_src
+
+    - name: "Is the module already built for the running kernel?"
+      ansible.builtin.command: "dkms status nct6687d/1 -k {{ ansible_facts['kernel'] }}"
+      register: fancontrol_dkms
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # `make dkms/install` does the add, build and install in one step, and is
+    # what upstream documents. It is not idempotent on its own, so it runs only
+    # when dkms does not already report the module installed for this kernel.
+    - name: "Build and install the module through DKMS"
+      ansible.builtin.command:
+        cmd: "make dkms/install"
+        chdir: "/usr/src/nct6687d-git"
+      when: "'installed' not in fancontrol_dkms.stdout"
+      changed_when: true
+      notify: "Reload the sensor driver"
+
+    - name: "Keep the read-only in-tree driver off this chip"
+      ansible.builtin.copy:
+        dest: "/etc/modprobe.d/nct6687.conf"
+        mode: "0644"
+        content: |
+          # Managed by Ansible (roles/fancontrol). Do not edit by hand.
+          # nct6683 exposes this chip's PWM registers read-only, so no fan curve
+          # can be applied while it holds the device. Both drivers bind the same
+          # ISA address.
+          blacklist nct6683
+      notify: "Reload the sensor driver"
+
+    - name: "Load the writable driver at boot"
+      ansible.builtin.copy:
+        dest: "/etc/modules-load.d/nct6687.conf"
+        mode: "0644"
+        content: |
+          # Managed by Ansible (roles/fancontrol). Do not edit by hand.
+          nct6687
+      notify: "Reload the sensor driver"
+
+    - name: "Make sure it is loaded now"
+      community.general.modprobe:
+        name: "nct6687"
+        state: present
+
+    # The hwmon index and the platform device id are discovered rather than
+    # assumed: fancontrol refuses to start if DEVPATH does not match what it
+    # finds, and both can move between kernels.
+    - name: "Find the hwmon directory the driver registered"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          for d in /sys/class/hwmon/hwmon*; do
+            [ "$(cat "$d/name" 2>/dev/null)" = "nct6687" ] && { basename "$d"; exit 0; }
+          done
+          exit 1
+        executable: "/bin/bash"
+      register: fancontrol_hwmon
+      changed_when: false
+      check_mode: false
+
+    - name: "Find its platform device path, which fancontrol matches on"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          readlink -f /sys/class/hwmon/{{ fancontrol_hwmon.stdout }}/device | sed 's|/sys/||'
+        executable: "/bin/bash"
+      register: fancontrol_devpath
+      changed_when: false
+      check_mode: false
+
+    - name: "Write the fan curve"
+      ansible.builtin.template:
+        src: "fancontrol.j2"
+        dest: "/etc/fancontrol"
+        mode: "0644"
+        # fancontrol parses this itself and refuses to start on a bad file, so a
+        # validate step here catches a broken curve before it reaches the unit.
+        validate: "sh -c 'grep -q ^FCTEMPS %s'"
+      notify: "Restart fancontrol"
+
+    - name: "Enable the service"
+      ansible.builtin.systemd_service:
+        name: "fancontrol"
+        enabled: true
+        state: started
+
+    # A curve that silently fails leaves both fans wherever the firmware left
+    # them, which on this board means one at full duty for ever. Proving the
+    # daemon is alive is cheap; discovering it months later is not.
+    - name: "Read back what systemd thinks of the unit"
+      ansible.builtin.systemd_service:
+        name: "fancontrol"
+      register: fancontrol_unit
+      changed_when: false
+      check_mode: false
+
+    - name: "Confirm the daemon is actually running"
+      ansible.builtin.assert:
+        that: "fancontrol_unit.status.ActiveState == 'active'"
+        fail_msg: >-
+          fancontrol is {{ fancontrol_unit.status.ActiveState }}, so both fans are
+          wherever the firmware left them -- on this board that means one at full
+          duty indefinitely.
+        success_msg: "fancontrol is active; both fans follow the curve"

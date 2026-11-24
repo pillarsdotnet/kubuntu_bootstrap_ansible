@@ -1,0 +1,36 @@
+---
+# Off everywhere but the host that asks for it, like the diagnostics role.
+# It builds an out-of-tree kernel module and blacklists an in-tree one, which
+# is not something to do to a machine that did not ask.
+fancontrol_enabled: false
+
+# The out-of-tree driver. Pinned to a commit rather than tracking a branch:
+# this builds a kernel module against whatever kernel the host is running,
+# and an unpinned upstream is a surprise waiting for the next reboot.
+fancontrol_nct6687d_repo: "https://github.com/Fred78290/nct6687d.git"
+fancontrol_nct6687d_commit: "3e48610"
+
+# The curve, in degrees C and PWM units (0-255).
+#   below MINTEMP          -> MINPWM
+#   MINTEMP .. MAXTEMP     -> linear
+#   above MAXTEMP          -> MAXPWM
+# MINPWM is non-zero on purpose: these fans never stop.
+fancontrol_mintemp: 45
+fancontrol_maxtemp: 80
+fancontrol_minpwm: 70
+fancontrol_minstop: 70
+fancontrol_minstart: 100
+fancontrol_maxpwm: 255
+fancontrol_interval: 10
+
+# Which PWM outputs to drive, and the fan tachometer paired with each.
+# pwm1 is CPU_FAN1; pwm2 is the second tower, on a header whose firmware
+# default is full duty.
+fancontrol_pwms:
+  - { pwm: "pwm1", fan: "fan1_input" }
+  - { pwm: "pwm2", fan: "fan2_input" }
+
+# The temperature the curve follows. temp1 on this chip is the CPU reading
+# over PECI, which tracks coretemp's package figure within a degree and
+# keeps the whole configuration on one hwmon.
+fancontrol_temp: "temp1_input"

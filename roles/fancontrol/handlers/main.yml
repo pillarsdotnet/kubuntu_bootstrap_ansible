@@ -1,0 +1,19 @@
+---
+# Order matters: fancontrol holds the pwm files open, so it has to stop
+# before the driver can be swapped, and the curve has to be reapplied after.
+- name: "Reload the sensor driver"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      systemctl stop fancontrol 2>/dev/null || true
+      modprobe -r nct6683 2>/dev/null || true
+      modprobe -r nct6687 2>/dev/null || true
+      modprobe nct6687
+    executable: "/bin/bash"
+  changed_when: true
+  notify: "Restart fancontrol"
+
+- name: "Restart fancontrol"
+  ansible.builtin.systemd_service:
+    name: "fancontrol"
+    state: restarted

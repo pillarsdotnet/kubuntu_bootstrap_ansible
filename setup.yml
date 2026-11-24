@@ -20,6 +20,12 @@
     # Off for every host but the one that asked for it; see
     # roles/diagnostics/defaults/main.yml.
     - "diagnostics"
+    # Off everywhere but the host whose board leaves a CPU fan at full
+    # duty; see roles/fancontrol/defaults/main.yml. Tagged so it can be run
+    # on its own: it builds an out-of-tree kernel module, which is worth
+    # being able to redo after a kernel update without a full setup run.
+    - role: "fancontrol"
+      tags: ["fancontrol"]
     # Also off everywhere by default. Exists so the forge can be stood up on
     # a second host while its usual one is unavailable; see
     # roles/forgejo/defaults/main.yml.

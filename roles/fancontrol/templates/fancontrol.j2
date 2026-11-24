@@ -1,0 +1,28 @@
+{% set hw = fancontrol_hwmon.stdout %}
+# {{ ansible_managed }}
+#
+# Both CPU fans follow one curve from the CPU PECI reading. Without this the
+# second tower runs at the firmware's default full duty while the first idles
+# -- measured at 2040 RPM against 775 RPM on the same heatsink.
+#
+# MINPWM is non-zero on purpose: the fans never stop. Thermal headroom is the
+# argument in an open warranty claim on this processor, and a stopped fan is
+# not a variable worth introducing to save a few decibels.
+INTERVAL={{ fancontrol_interval }}
+DEVPATH={{ hw }}={{ fancontrol_devpath.stdout }}
+DEVNAME={{ hw }}=nct6687
+FCTEMPS={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ hw }}/{{ fancontrol_temp }} {% endfor %}
+
+FCFANS={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ hw }}/{{ p.fan }} {% endfor %}
+
+MINTEMP={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ fancontrol_mintemp }} {% endfor %}
+
+MAXTEMP={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ fancontrol_maxtemp }} {% endfor %}
+
+MINSTART={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ fancontrol_minstart }} {% endfor %}
+
+MINSTOP={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ fancontrol_minstop }} {% endfor %}
+
+MINPWM={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ fancontrol_minpwm }} {% endfor %}
+
+MAXPWM={% for p in fancontrol_pwms %}{{ hw }}/{{ p.pwm }}={{ fancontrol_maxpwm }} {% endfor %}
