@@ -70,6 +70,17 @@ fileserver_hosts_deny:
 # updated.
 fileserver_interfaces: []
 
+# Filter the share list down to what the connecting account can actually
+# open, which Windows calls Access-Based Enumeration. Samba's own default is
+# "no", so every browseable share appears to anyone who authenticates whether
+# or not they can get into it; on a role whose model is a share per account
+# that is just a confusing list.
+#
+# Visibility only, not access control: "valid users" and "read list" decide
+# who gets in, and a share name is still reachable by typing the path. It
+# hides nothing from an account that has at least read access to a share.
+fileserver_access_based_enum: true
+
 # SMB1 is off by default in modern Windows and should stay off here. SMB3 adds
 # encryption, which "desired" negotiates where the client supports it rather
 # than refusing clients that do not.

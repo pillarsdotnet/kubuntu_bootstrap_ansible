@@ -14,6 +14,10 @@
     security = user
     map to guest = never
 
+    # Set in [global] so it applies to every share; Samba treats it as a
+    # per-share parameter. See the defaults for what it does and does not do.
+    access based share enum = {{ "yes" if fileserver_access_based_enum | bool else "no" }}
+
     server min protocol = {{ fileserver_min_protocol }}
     smb encrypt = {{ fileserver_encrypt }}
 {% if fileserver_interfaces | length > 0 %}

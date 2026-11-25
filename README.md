@@ -578,6 +578,19 @@ way a client does and resets it only when that fails. A password changed by
 hand with `smbpasswd` is reverted on the next run, so either tell the vault
 about it or drop that account from `fileserver_users` and manage it yourself.
 
+`fileserver_access_based_enum` filters the share list down to what the
+connecting account can actually open - what `Windows` calls Access-Based
+Enumeration. `Samba` defaults it to `no`, so every `browseable` share appears to
+anyone who authenticates whether or not they can get into it, which on a role
+whose model is a share per account is merely a confusing list. It is on by
+default here.
+
+Be clear that it is visibility and not access control: `valid users` and
+`read list` decide who gets in, a hidden share is still refused rather than
+absent when its path is typed, and it hides nothing from an account that has
+even read access. Granting one account `ro_users` on another's share therefore
+puts that share back in its list.
+
 ### Both host lists have to name both address families
 
 `hosts allow` and `hosts deny` written as `IPv4` expressions leave an `IPv6`
