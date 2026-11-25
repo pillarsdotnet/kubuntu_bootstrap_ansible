@@ -1,0 +1,149 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Consolidate one share's contents into another as timestamped snapshots.
+#
+# Read /etc/fileserver-replicate.conf for the pairs and the thresholds. Each
+# pair becomes <dest>/<UTC timestamp>/ holding a copy of <source> as it was.
+#
+# Be clear about what this does and does not buy. It is consolidation, not
+# redundancy: both copies live on the same filesystem, and on a host whose
+# volume group is a linear span across several drives with no parity, one
+# drive failure takes the original and every snapshot with it. It protects
+# against a machine losing its own backup, not against this host losing a disk.
+#
+# Three interlocks, each of which exists because the obvious version is wrong:
+#
+#   - A source still being written is skipped. Windows streams a system image
+#     over SMB for minutes at a time, and copying mid-write captures a torn
+#     file that looks like a backup and is not one. So nothing is copied until
+#     the newest file in the source has been untouched for QUIET_MINUTES.
+#
+#   - A snapshot that would breach the free-space floor is refused rather than
+#     started. These shares sit on the same filesystem as the rest of the
+#     host, so filling it takes down everything else too, and a half-written
+#     snapshot is worse than no snapshot.
+#
+#   - Pruning only ever considers directories whose names match the timestamp
+#     pattern this script writes. The destination is also a live share with
+#     its own client writing into it - WindowsImageBackup/ among others - and
+#     a prune that walked everything would delete somebody's real backup.
+set -euo pipefail
+
+conf="/etc/fileserver-replicate.conf"
+QUIET_MINUTES=15
+KEEP=3
+MIN_FREE_GB=500
+PAIRS=""
+# shellcheck source=/dev/null
+[ -r "$conf" ] && . "$conf"
+
+# The only names this script will ever create or delete.
+stamp_glob='[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z'
+stamp_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$'
+
+log() {
+  logger -t fileserver-replicate -- "$*" || true
+  printf 'fileserver-replicate: %s\n' "$*"
+}
+
+failures=0
+
+free_gb() {
+  local path="$1" avail
+  avail="$(df --output=avail "$path" | tail -1 | tr -d ' ')"
+  printf '%s' "$((avail / 1024 / 1024))"
+}
+
+# Newest mtime anywhere under the source, in seconds since the epoch. Empty
+# when the source holds no files at all.
+newest_mtime() {
+  find "$1" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1
+}
+
+replicate() {
+  local source="$1" dest="$2"
+
+  if [ ! -d "$source" ]; then
+    log "WARNING: source $source does not exist; skipping"
+    return 0
+  fi
+  if [ ! -d "$dest" ]; then
+    log "WARNING: destination $dest does not exist; skipping"
+    return 0
+  fi
+
+  local newest
+  newest="$(newest_mtime "$source")"
+  if [ -z "$newest" ]; then
+    log "$source is empty; nothing to copy"
+    return 0
+  fi
+
+  local age_min=$(((  $(date +%s) - newest ) / 60 ))
+  if [ "$age_min" -lt "$QUIET_MINUTES" ]; then
+    log "$source changed ${age_min}m ago, under the ${QUIET_MINUTES}m quiet period; leaving it alone"
+    return 0
+  fi
+
+  local avail
+  avail="$(free_gb "$dest")"
+  if [ "$avail" -lt "$MIN_FREE_GB" ]; then
+    log "REFUSING: $dest has ${avail} GiB free, below the ${MIN_FREE_GB} GiB floor"
+    return 1
+  fi
+
+  # Hardlink against the newest existing snapshot, so a file that did not
+  # change between runs costs an inode rather than its size. A Windows system
+  # image is rewritten whole each time and will not benefit; File History's
+  # per-file versions will.
+  local latest link_dest=()
+  latest="$(find "$dest" -maxdepth 1 -type d -name "$stamp_glob" -printf '%f\n' 2>/dev/null | sort | tail -1)"
+  [ -n "$latest" ] && link_dest=(--link-dest="$dest/$latest")
+
+  local stamp partial
+  stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
+  partial="$dest/.$stamp.partial"
+
+  rm -rf -- "$partial"
+  mkdir -p -- "$partial"
+
+  # Trailing slash on the source: copy its contents, not the directory itself.
+  # No --delete: each snapshot is built fresh, and --link-dest supplies what
+  # has not changed.
+  if ! rsync -a "${link_dest[@]}" -- "$source/" "$partial/"; then
+    log "ERROR: rsync failed for $source -> $dest; leaving $partial for inspection"
+    return 1
+  fi
+
+  # Rename last, so a snapshot only ever appears complete. An interrupted run
+  # leaves a dot-prefixed directory the prune below will not touch.
+  mv -- "$partial" "$dest/$stamp"
+  log "$source -> $dest/$stamp ($(du -sh "$dest/$stamp" 2>/dev/null | cut -f1) apparent${latest:+, linked against $latest})"
+
+  # Prune, newest kept. Only our own timestamps are candidates.
+  local count
+  count="$(find "$dest" -maxdepth 1 -type d -name "$stamp_glob" -printf '%f\n' 2>/dev/null | wc -l)"
+  if [ "$count" -gt "$KEEP" ]; then
+    find "$dest" -maxdepth 1 -type d -name "$stamp_glob" -printf '%f\n' 2>/dev/null \
+      | sort | head -n "$((count - KEEP))" \
+      | while read -r old; do
+          [[ "$old" =~ $stamp_re ]] || { log "refusing to prune unexpected name: $old"; continue; }
+          # ${var:?} so this can never become "rm -rf /" if either is empty.
+          rm -rf -- "${dest:?}/${old:?}"
+          log "pruned $dest/$old"
+        done
+  fi
+}
+
+[ -n "$PAIRS" ] || { log "no pairs configured in $conf; nothing to do"; exit 0; }
+
+while read -r line; do
+  line="${line%%#*}"
+  [ -n "${line// /}" ] || continue
+  src="${line%%|*}"
+  dst="${line##*|}"
+  replicate "${src// /}" "${dst// /}" || failures=$((failures + 1))
+done <<< "$PAIRS"
+
+[ "$failures" -eq 0 ] || { log "$failures pair(s) failed"; exit 1; }

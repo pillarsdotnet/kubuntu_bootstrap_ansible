@@ -27,9 +27,16 @@ fileserver_users: []
 # second account later without rewriting ownership.
 fileserver_group: "backup"
 
-# Shares, as a list of {name, users} and optionally {comment, path}. The path
-# defaults to fileserver_root/<name>, and "users" names which of
-# fileserver_users may connect - it is also who the directory belongs to.
+# Shares, as a list of {name, users} and optionally {comment, path,
+# ro_users}. The path defaults to fileserver_root/<name>; "users" names which
+# of fileserver_users may read and write, and is also who the directory
+# belongs to; "ro_users" names accounts that may connect and read but not
+# write.
+#
+# ro_users is enforced by Samba, through "read list". The directory mode is
+# still group-writable, because the share's own account needs that, so an
+# ro_users account with shell access on the host - which these accounts
+# deliberately do not have - would not be stopped by the filesystem.
 #
 # One share per purpose AND per machine. Windows Backup overwrites its whole
 # target on every run and keeps exactly one system image per location, so two
@@ -77,6 +84,23 @@ fileserver_wsdd: true
 # host carrying docker and Kubernetes bridges means advertising into container
 # networks too - harmless, but noisy. Name the LAN interface to avoid it.
 fileserver_wsdd_interface: ""
+
+# Consolidate one share's contents into another as timestamped snapshots, as
+# a list of {source, dest} naming shares from fileserver_shares. Empty
+# installs nothing at all.
+#
+# This is consolidation, not redundancy: both copies land on the same
+# filesystem. On a host whose volume group is a linear span with no parity,
+# one drive failure takes the original and every snapshot together. It guards
+# against a machine losing its own backup, not against this host losing a disk.
+fileserver_replicate: []
+fileserver_replicate_interval: "hourly"
+# How long the source must have been untouched before it is copied.
+fileserver_replicate_quiet_minutes: 15
+# Snapshots kept per destination, pruned oldest first.
+fileserver_replicate_keep: 3
+# A new snapshot is refused below this much free space rather than started.
+fileserver_replicate_min_free_gb: 500
 
 # Warn before the filesystem holding the shares fills. A timer rather than a
 # quota because this host's volume group has no free extents and its ext4 has

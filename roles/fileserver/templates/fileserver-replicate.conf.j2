@@ -1,0 +1,23 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+# Sourced by /usr/local/sbin/fileserver-replicate, so every line must be a
+# bare KEY=value that bash can read.
+
+# How long the source must have been untouched before it is copied. Windows
+# streams a system image over SMB for minutes; copying mid-write captures a
+# torn file that looks like a backup and is not one.
+QUIET_MINUTES={{ fileserver_replicate_quiet_minutes }}
+
+# Snapshots kept per destination. Low on purpose: a Windows system image is
+# rewritten whole each run, so it cannot be hardlinked against the previous
+# snapshot and each one costs its full size.
+KEEP={{ fileserver_replicate_keep }}
+
+# A new snapshot is refused, not truncated, below this much free space.
+MIN_FREE_GB={{ fileserver_replicate_min_free_gb }}
+
+# source|destination, one pair per line, as absolute paths.
+PAIRS="
+{% for pair in fileserver_replicate %}
+{{ (fileserver_shares | selectattr('name', 'equalto', pair.source) | first).path | default(fileserver_root + '/' + pair.source) }}|{{ (fileserver_shares | selectattr('name', 'equalto', pair.dest) | first).path | default(fileserver_root + '/' + pair.dest) }}
+{% endfor %}
+"

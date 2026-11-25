@@ -1,0 +1,14 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Periodic consolidation of share backups
+
+[Timer]
+OnCalendar={{ fileserver_replicate_interval }}
+# The quiet-period check means a run that fires while a backup is in flight
+# costs nothing and simply declines, so firing often is cheap and catching a
+# finished backup soon after it lands is worth more than firing rarely.
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

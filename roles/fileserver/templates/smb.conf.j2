@@ -51,7 +51,14 @@
     browseable = yes
     read only = no
     guest ok = no
-    valid users = {{ share.users | join(' ') }}
+    valid users = {{ (share.users + share.ro_users | default([])) | join(' ') }}
+{% if share.ro_users | default([]) | length > 0 %}
+    # "read only = no" above is the share default; these two lists then say
+    # who it actually applies to. Without the read list an ro_users account
+    # would inherit the share default and be able to write.
+    write list = {{ share.users | join(' ') }}
+    read list = {{ share.ro_users | join(' ') }}
+{% endif %}
     # Group-writable so a share can be opened to a second account later, and
     # not world-readable: these are backups. No "force user", so a file is
     # owned by whoever wrote it rather than by one shared identity.

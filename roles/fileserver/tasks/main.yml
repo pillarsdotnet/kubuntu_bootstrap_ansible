@@ -29,6 +29,21 @@
             fileserver_shares | map(attribute='users') | flatten | unique
             | difference(fileserver_users | map(attribute='name') | list)
             | length == 0
+          - >-
+            fileserver_shares | selectattr('ro_users', 'defined')
+            | map(attribute='ro_users') | flatten | unique
+            | difference(fileserver_users | map(attribute='name') | list)
+            | length == 0
+          # The outer parentheses matter: Jinja binds a filter tighter than
+          # "+", so without them the concatenation swallows the comparison and
+          # fails with "can only concatenate list (not int) to list".
+          - >-
+            (
+              (fileserver_replicate | map(attribute='source') | list)
+              + (fileserver_replicate | map(attribute='dest') | list)
+            ) | unique
+            | difference(fileserver_shares | map(attribute='name') | list)
+            | length == 0
         fail_msg: >-
           fileserver_enabled is true but fileserver_users or fileserver_shares
           is unset, an account has no password, or a share names an account
@@ -39,7 +54,10 @@
 
     - name: "Install the server"
       ansible.builtin.apt:
-        name: "{{ ['samba'] + (['wsdd'] if (fileserver_wsdd | bool) else []) }}"
+        name: >-
+          {{ ['samba']
+             + (['wsdd'] if (fileserver_wsdd | bool) else [])
+             + (['rsync'] if (fileserver_replicate | length > 0) else []) }}
         state: present
         update_cache: true
         cache_valid_time: 3600
@@ -189,12 +207,106 @@
     - name: "Flush the restarts before testing the shares"
       ansible.builtin.meta: "flush_handlers"
 
+    # Creating an account is not the same as keeping its password current. The
+    # pdbedit guard above deliberately will not touch an account that exists,
+    # because otherwise every run would reset the password and report a change
+    # where nothing changed - but that also meant a changed value in host_vars
+    # was written to the vault and never reached the host, so the file said one
+    # thing and the share accepted another.
+    #
+    # So the configured password is tested the way a client tests it, and reset
+    # only when it does not work. That is what makes host_vars authoritative:
+    # change the vaulted value, re-run the role, and the account follows.
+    - name: "Does each account's stored password match the configured one?"
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          if smbclient -L localhost
+          -U {{ item.name }}%"$FILESERVER_PASSWORD"
+          --option='client min protocol=SMB3' >/dev/null 2>&1;
+          then echo matches; else echo differs; fi
+        executable: "/bin/bash"
+      environment:
+        FILESERVER_PASSWORD: "{{ item.password }}"
+      loop: "{{ fileserver_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: "fileserver_pwcheck"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: "Reset a password that no longer matches host_vars"
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          printf '%s\n%s\n' "$FILESERVER_PASSWORD" "$FILESERVER_PASSWORD"
+          | smbpasswd -s -a {{ item.item.name }} >/dev/null
+        executable: "/bin/bash"
+      environment:
+        FILESERVER_PASSWORD: "{{ item.item.password }}"
+      loop: "{{ fileserver_pwcheck.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: "'differs' in (item.stdout | default(''))"
+      changed_when: true
+      no_log: true
+
     - name: "Enable the free-space timer"
       ansible.builtin.systemd_service:
         name: "fileserver-space-check.timer"
         enabled: true
         state: started
       when: "fileserver_space_alarm | bool"
+
+    # Nothing here runs on a host that configured no pairs, so the script and
+    # its units are absent rather than installed and inert.
+    - name: "Install the consolidation script"
+      ansible.builtin.copy:
+        src: "fileserver-replicate"
+        dest: "/usr/local/sbin/fileserver-replicate"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      when: "fileserver_replicate | length > 0"
+
+    # No handler: the script sources this on each run, so a changed threshold
+    # takes effect at the next firing without restarting anything.
+    - name: "Write the consolidation policy"
+      ansible.builtin.template:
+        src: "fileserver-replicate.conf.j2"
+        dest: "/etc/fileserver-replicate.conf"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      when: "fileserver_replicate | length > 0"
+
+    - name: "Install the consolidation units"
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      loop:
+        - "fileserver-replicate.service"
+        - "fileserver-replicate.timer"
+      when: "fileserver_replicate | length > 0"
+      notify: "Reload systemd timers"
+
+    - name: "Reload systemd so the consolidation units are visible"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: "fileserver_replicate | length > 0"
+      changed_when: false
+
+    - name: "Enable the consolidation timer"
+      ansible.builtin.systemd_service:
+        name: "fileserver-replicate.timer"
+        enabled: true
+        state: started
+      when: "fileserver_replicate | length > 0"
 
     # Everything above can succeed while a share is unreachable - a wrong
     # password, a path smbd cannot enter, a global that testparm accepts and
