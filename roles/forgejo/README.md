@@ -430,6 +430,47 @@ database to test it before the first copy arrives. `sqlite3` **creates** the
 file, so it leaves a zero-byte `library.db` that looks like a broken sync.
 Open it read-only instead: `sqlite3 'file:...library.db?mode=ro'`.
 
+### A moved name is pinned in more places than DNS
+
+Moving these services broke four things, each of which was a name cached or
+hard-coded somewhere that `DNS` never reaches. None reported a cause that
+pointed at the migration. Check all four:
+
+| where                                                 | symptom                                                    |
+| ----------------------------------------------------- | ---------------------------------------------------------- |
+| `known_hosts` on every machine that clones            | `REMOTE HOST IDENTIFICATION HAS CHANGED`                   |
+| root's `known_hosts` on the library sync's **sender** | `peer unreachable or refusing the sync key`                |
+| `/etc/hosts` on a LAN client                          | `apt update` fails; the forge is unreachable               |
+| a workflow file                                       | a hard-coded `10.0.0.2` endpoint, unreachable from a `VPS` |
+
+The `/etc/hosts` one is the easiest to miss and the most confusing, because it
+surfaces as a **package manager** failure. `acermagic` carried a hand-made
+line that was correct for years:
+
+```text
+10.0.0.2 homelab.lan homelab k8scp cp game.bobbalisa.org game forgejo.bobbalisa.org forgejo
+```
+
+Once that host took 10.0.0.2 the line pointed it at **itself** for the forge,
+and because the `Debian` package registry is served by the forge, every
+`apt update` failed with `Could not connect to forgejo.bobbalisa.org:443
+(10.0.0.2) - connect (111: Connection refused)`. The role that wanted to
+install `nut` failed on an apt cache update, which is about as far from "a
+service moved" as a message can get.
+
+Keep `homelab`, `k8scp` and `cp` in such a line - the first follows the
+address deliberately, and the router answers neither of the others - and strip
+only the names that moved. Then `resolvectl flush-caches`, because the stale
+answer outlives the edit.
+
+Worth sweeping for, rather than waiting to be bitten:
+
+```bash
+for h in bobse16 acermagic racknerd; do
+  ssh "$h" 'grep -nE "bobbalisa" /etc/hosts'
+done
+```
+
 ### Correctly staying with the hardware
 
 - **`NUT`** — the `UPS` is physically plugged into that host.
