@@ -8,6 +8,25 @@
     name: "nut-driver-enumerator.service"
     state: "restarted"
 
+# Between the enumerator and upsd, because a driver option in ups.conf -
+# pollonly, allow_killpower - is read only when the driver starts, and nothing
+# else here restarts the instance. The enumerator rebuilds the unit's drop-ins
+# when the section changes but leaves a running driver alone. Measured twice on
+# homelab 2026-11-24: pollonly, and then allow_killpower, were both written to
+# ups.conf, reported as changed, and both silently ignored until the instance
+# was restarted by hand.
+#
+# Allowed to fail for the same reason the initial start is, and documented at
+# length in tasks/main.yml: a UPS may refuse its HID report descriptor for
+# several attempts, systemd keeps retrying, and the upsc read at the end of
+# the play is what actually gates success.
+- name: "Restart the UPS driver"
+  ansible.builtin.systemd_service:
+    name: "nut-driver@{{ nut_ups_name }}.service"
+    state: "restarted"
+  register: "nut_driver_restarted"
+  failed_when: false
+
 - name: "Restart the UPS information server"
   ansible.builtin.systemd_service:
     name: "nut-server.service"

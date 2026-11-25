@@ -21,3 +21,9 @@
 {% for key, value in nut_driver_extra | dictsort %}
     {{ key }} = "{{ value }}"
 {% endfor %}
+{% for flag in nut_driver_flags %}
+    {{ flag }}
+{% endfor %}
+{% if nut_allow_killpower | bool %}
+    allow_killpower
+{% endif %}

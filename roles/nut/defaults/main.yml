@@ -28,8 +28,32 @@ nut_productid: ""
 # physical unit: it survives a battery replacement and changes if the whole
 # UPS is swapped.
 nut_serial: ""
-# Any further driver settings, written into the UPS section as given.
+# Any further driver settings, written into the UPS section as key = value.
 nut_driver_extra: {}
+
+# Let the UPS cut its own output at the end of a power-fail shutdown, so it
+# stops draining the battery once the host it protects has halted, and
+# re-energises when mains returns. NUT ships this locked
+# (driver.flag.allow_killpower defaults to 0) because it is the one setting
+# here that can take power away from a running machine.
+#
+# It is much narrower than it sounds. upsmon writes POWERDOWNFLAG only on a
+# low-battery shutdown, and the packaged /usr/lib/systemd/system-shutdown/
+# nutshutdown hook runs "upsdrvctl shutdown" only when that flag is present -
+# it logs "SKIP: Not in FSD (killpower) mode" otherwise. So an ordinary reboot
+# or "shutdown -h now" does NOT cut the outlets.
+#
+# Before enabling it, check the host's firmware will power on again by itself
+# after AC is restored. The UPS re-energises after ups.delay.start seconds; if
+# the board is set to stay off after an AC loss, the outlets come back and the
+# machine does not.
+nut_allow_killpower: false
+
+# Driver flags, written one per line as the bare name. Separate from
+# nut_driver_extra because NUT's parser takes a flag as its name alone:
+# "pollonly = true" is not the same thing, it is a setting called pollonly
+# with a value, which the driver does not have.
+nut_driver_flags: []
 
 # upsd binds loopback only. The host holding the USB cable is the host that
 # monitors the UPS, and NUT's protocol sends the monitoring password in clear

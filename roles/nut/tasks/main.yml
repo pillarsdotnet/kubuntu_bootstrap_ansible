@@ -114,6 +114,7 @@
       changed_when: "'retriggered' in nut_udev.stdout"
       notify:
         - "Re-enumerate the UPS drivers"
+        - "Restart the UPS driver"
         - "Restart the UPS information server"
         - "Restart the UPS monitor"
 
@@ -156,6 +157,7 @@
         - "upsmon.conf"
       notify:
         - "Re-enumerate the UPS drivers"
+        - "Restart the UPS driver"
         - "Restart the UPS information server"
         - "Restart the UPS monitor"
 
@@ -209,6 +211,33 @@
     # which leaves upsd serving a UPS that is permanently "stale" - and a
     # monitored UPS that reports nothing is the same as no UPS at all, only
     # with the paperwork of being protected. So read a value back.
+    # The driver reads ups.conf only when it starts, so a host whose file is
+    # already correct can still be running a driver that never saw it. That is
+    # not hypothetical: allow_killpower stayed locked here through two runs
+    # that both reported converged, because the file matched and so no handler
+    # fired. Comparing the configured intent against the live value closes
+    # that loop, and the upsc read further down waits for the driver to come
+    # back, so the restart costs nothing but time.
+    - name: "Read the driver's live killpower flag"
+      ansible.builtin.command:
+        cmd: "upsc {{ nut_target }} driver.flag.allow_killpower"
+      register: "nut_live_killpower"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: "Recycle the driver when its live flag does not match ups.conf"
+      ansible.builtin.systemd_service:
+        name: "nut-driver@{{ nut_ups_name }}.service"
+        state: "restarted"
+      register: "nut_driver_resync"
+      failed_when: false
+      when:
+        - "nut_live_killpower.rc == 0"
+        - >-
+          (nut_live_killpower.stdout | trim)
+          != ('1' if (nut_allow_killpower | bool) else '0')
+
     - name: "Flush the restarts before reading the UPS"
       ansible.builtin.meta: "flush_handlers"
 
@@ -231,6 +260,18 @@
       retries: 20
       delay: 15
       until: "nut_status.rc == 0"
+
+    - name: "Read the killpower flag back"
+      ansible.builtin.command:
+        cmd: "upsc {{ nut_target }} driver.flag.allow_killpower"
+      register: "nut_killpower_now"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      retries: 10
+      delay: 6
+      until: "nut_killpower_now.rc == 0"
+      when: "nut_allow_killpower | bool"
 
     - name: "Confirm the driver is actually talking to the UPS"
       ansible.builtin.assert:
@@ -260,6 +301,18 @@
     # Worth knowing before setting this to "disabled": it silences the whole
     # beeper, the overload and critical-fault alarms included - the same
     # beeper that reported an F01 on this unit. It is not an on-battery mute.
+    - name: "Confirm the UPS will cut its own output on a power-fail shutdown"
+      ansible.builtin.assert:
+        that: "(nut_killpower_now.stdout | trim) == '1'"
+        fail_msg: >-
+          nut_allow_killpower is true but the driver still reports
+          driver.flag.allow_killpower
+          "{{ nut_killpower_now.stdout | default('') | trim }}". upsdrvctl
+          shutdown would refuse, so the UPS would keep draining the battery
+          after this host halts.
+        success_msg: "Killpower is unlocked; the UPS will power down with the host"
+      when: "nut_allow_killpower | bool"
+
     - name: "Hold the beeper at the state this host asked for"
       when: "nut_beeper_state | length > 0"
       block:
