@@ -77,6 +77,73 @@
     mode: "u=rw,g=r,o="
     owner: "{{ forgejo_runner_user }}"
 
+# Before registration and before the unit: a runner that cannot pull an image
+# accepts jobs and then stalls, which is worse than not running at all.
+- name: "Give the runner a docker client that can pull on a headless host"
+  when: "forgejo_runner_docker_credstore | length > 0"
+  block:
+    # Installed by this role rather than assumed, because it exists on both
+    # hosts in this estate as a hand-made file in /usr/local/bin and in no
+    # package - so a rebuilt host would silently lose it.
+    - name: "Install the no-op credential helper"
+      ansible.builtin.copy:
+        dest: "/usr/local/bin/docker-credential-{{ forgejo_runner_docker_credstore }}"
+        group: "root"
+        mode: "0755"
+        owner: "root"
+        src: "docker-credential-noop"
+      when: "forgejo_runner_docker_credstore == 'noop'"
+
+    - name: "Create the runner's docker configuration directory"
+      ansible.builtin.file:
+        group: "{{ forgejo_runner_user }}"
+        mode: "u=rwx,g=,o="
+        owner: "{{ forgejo_runner_user }}"
+        path: "{{ forgejo_runner_home }}/.docker"
+        state: "directory"
+
+    - name: "Name the credential store, so none is auto-detected"
+      ansible.builtin.copy:
+        content: |
+          {
+            "credsStore": "{{ forgejo_runner_docker_credstore }}"
+          }
+        dest: "{{ forgejo_runner_home }}/.docker/config.json"
+        group: "{{ forgejo_runner_user }}"
+        mode: "u=rw,g=,o="
+        owner: "{{ forgejo_runner_user }}"
+      notify: "Restart the Forgejo runner"
+
+    - name: "Confirm the helper the store names actually exists"
+      ansible.builtin.stat:
+        path: "/usr/local/bin/docker-credential-{{ forgejo_runner_docker_credstore }}"
+      register: "forgejo_runner_credhelper"
+
+    - name: "Refuse a credential store with no helper behind it"
+      ansible.builtin.assert:
+        fail_msg: >-
+          forgejo_runner_docker_credstore is
+          "{{ forgejo_runner_docker_credstore }}" but
+          docker-credential-{{ forgejo_runner_docker_credstore }} is not on
+          this host. The docker client would fail every pull looking for it.
+        quiet: true
+        that:
+          - "forgejo_runner_credhelper.stat.exists"
+
+    # The proof, not the assumption: pull a tiny public image as the runner's
+    # own account. This is the exact operation that was failing.
+    - name: "Prove the runner can pull an image"
+      ansible.builtin.command:
+        argv: ["docker", "pull", "busybox:stable"]
+      become: true
+      become_user: "{{ forgejo_runner_user }}"
+      changed_when: false
+      check_mode: false
+      environment:
+        HOME: "{{ forgejo_runner_home }}"
+      register: "forgejo_runner_pull"
+      failed_when: "forgejo_runner_pull.rc != 0"
+
 - name: "Look for credentials from an earlier registration"
   ansible.builtin.stat:
     path: "{{ forgejo_runner_home }}/.runner"

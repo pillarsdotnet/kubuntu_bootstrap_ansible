@@ -239,3 +239,27 @@ forgejo_runner_container_memory: ""
 forgejo_runner_container_options: ""
 # Host paths a job container may bind-mount. Empty permits none.
 forgejo_runner_valid_volumes: []
+
+# The docker credential store the runner's docker client should use, or empty
+# to leave its configuration alone.
+#
+# Set this to "noop" on a HEADLESS host, and the reason is worth the words
+# because the failure is both total and well disguised. Installing
+# golang-docker-credential-helpers puts docker-credential-secretservice on
+# PATH, and the docker client then AUTO-DETECTS it whenever no credential
+# store is configured. On a machine with no desktop session there is no
+# D-Bus keyring to answer, so every image pull - including anonymous pulls of
+# public images - dies with:
+#
+#   error getting credentials - err: exit status 1,
+#   out: `Cannot autolaunch D-Bus without X11 $DISPLAY`
+#
+# Measured on racknerd 2026-11-25: four CI jobs were accepted and then sat in
+# "running" forever with five lines of log, because the job image could not be
+# pulled. Nothing in the runner's own log said why. An empty config file does
+# NOT help - tested - because an unset store is exactly what triggers the
+# auto-detection. A store that names a helper which reports no credentials is
+# what works, and this role installs that helper.
+#
+# homelab never hit it: it is a desktop, so the keyring really does answer.
+forgejo_runner_docker_credstore: ""
