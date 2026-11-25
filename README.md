@@ -723,6 +723,90 @@ filesystem. Where that filesystem is a linear span with no parity, one drive
 failure takes the original and every snapshot together. It guards against a
 machine losing its own backup, not against the host losing a disk.
 
+### A disk of its own
+
+`fileserver_device` mounts a filesystem at `fileserver_root` **before** any
+share directory is created, which is the order that matters: create the
+directories first and the mount then hides them, so the backups appear to have
+vanished when in fact they were written to the disk underneath and are still
+sitting there, consuming the room the shares now need.
+
+```yaml
+fileserver_device: "UUID=60d1577f-2c45-4455-b321-9aa3a03c5b45"
+fileserver_fstype: "btrfs"
+```
+
+Name the disk the way `fstab` does — `UUID=`, `LABEL=`, or a
+`/dev/disk/by-id` path — and never as a bare `/dev/sdX`. That name is handed
+out in enumeration order, so an unrelated `USB` stick present at boot can take
+it and the shares then mount whatever did turn up.
+
+**The role mounts and never formats.** A device carrying no filesystem, or one
+of a different type, fails the check rather than being overwritten: there is no
+way to tell "the new disk I meant to set up" from "the wrong disk, holding the
+only copy of something". Run `mkfs` by hand, once, and record what was on it
+first. The default options carry `nofail` and a device timeout, because a
+removable disk that is absent at boot must not drop the host to an emergency
+shell.
+
+### Nightly deduplication
+
+`fileserver_dedupe_enabled` runs `duperemove` over the shares each night. It
+needs a filesystem that can share extents between files, which in practice
+means `btrfs`.
+
+This is the setting that lets one disk hold more than one disk's worth of
+`Windows` backups. `wbadmin` rewrites its **entire** system image on every
+run, so last night's image and tonight's are overwhelmingly the same blocks
+stored under a different name. Hard linking cannot collapse that, because no
+two files are identical in full, and compression cannot either, because the
+duplication is between files rather than inside one. Sharing extents is the
+only mechanism that reaches it.
+
+Measured on `acermagic`, 2026-11-25: two independently written 400 MiB files
+occupied 800 MiB before a run and 400 MiB after it, byte-identical either side.
+
+Two things the script is careful about, each with a failure mode behind it:
+
+- It refuses a filesystem without `reflink` support rather than proceeding.
+  `duperemove` against `ext4` fails one extent at a time, thousands of times,
+  and still exits zero — so the run looks like it worked.
+- It forces a transaction commit before measuring free space. `btrfs` releases
+  unshared extents on the next commit rather than when `duperemove` returns, so
+  a reading taken immediately shows no change at all: the run above reported
+  "+0 MiB" for genuinely reclaiming 400 MiB until that was fixed.
+
+It holds an exclusive lock, so the nightly timer and somebody running it by
+hand cannot corrupt one hash file between them. The hash file lives outside
+`fileserver_root` deliberately — inside, it would be part of the data being
+deduplicated and would also appear in whichever share it landed in.
+
+## Moving a service to another host
+
+`roles/forgejo`, `roles/calibre` and `roles/foundry` all exist for one
+situation: a service that normally lives on one host needs somewhere else to be
+while that host is away. Each is off everywhere until a `host_vars` file turns
+it on, and each stops _managing_ rather than uninstalling when turned back off.
+
+Three more came out of auditing what else the departing host was quietly
+doing, which is the part of a migration that gets missed:
+
+| role           | what it carries                                         |
+| -------------- | ------------------------------------------------------- |
+| `ddns`         | the site's Hurricane Electric dynamic DNS record        |
+| `sccache`      | the shared Rust object cache CI pulls from, over WebDAV |
+| `library_peer` | receives the Home Library hourly disaster copy          |
+
+`bootstrap_extra_addresses` is the other half of the same problem: it lets one
+host answer at another's address, so everything that hard-codes that address
+keeps working. It refuses to add an address something else already answers on,
+which means it can only be enabled once the other host is genuinely off.
+
+The runbook is `roles/forgejo/README.md`. Read it before moving anything — it
+carries the parts that are not obvious and were expensive to find, including
+where the name records actually live, how to hold a certificate before the name
+moves, and three ways a restore can succeed and still leave the service broken.
+
 ## Environment Profiles: VDI and High-Risk Deployments
 
 For VDI environments or systems where supply chain security is a concern, you can filter

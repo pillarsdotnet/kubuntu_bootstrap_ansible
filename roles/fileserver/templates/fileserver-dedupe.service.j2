@@ -1,0 +1,27 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Deduplicate the backup shares with duperemove
+Documentation=man:duperemove(8)
+# The shares have to be mounted. Without this the run finds an empty
+# directory on the underlying filesystem, hashes nothing, and reports success.
+{% if fileserver_device | length > 0 %}
+RequiresMountsFor={{ fileserver_root }}
+{% endif %}
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fileserver-dedupe \
+    --hashfile {{ fileserver_dedupe_hashfile }} \
+    --blocksize {{ fileserver_dedupe_blocksize }} \
+{% for dedupe_path in (fileserver_dedupe_paths if fileserver_dedupe_paths | length > 0 else [fileserver_root]) %}
+    --path {{ dedupe_path }}{{ " \\" if not loop.last else "" }}
+{% endfor %}
+# A run that cannot finish overnight is not keeping up. Failing is the signal;
+# two runs overlapping on one hashfile is what it prevents, and the script's
+# own lock is the backstop if this ever stops working.
+TimeoutStartSec={{ fileserver_dedupe_timeout }}
+# Dedup is pure background work and must never be what makes a backup time
+# out. Idle I/O and the lowest CPU priority: it has all night.
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+Nice=19

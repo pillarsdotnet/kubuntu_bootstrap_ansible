@@ -17,13 +17,25 @@ server {
 }
 
 server {
+{% if forgejo_nginx_listen_addresses | length > 0 %}
+{% for listen_address in forgejo_nginx_listen_addresses %}
+    listen {{ listen_address }}:443 ssl;
+{% endfor %}
+{% else %}
     listen 443 ssl;
     listen [::]:443 ssl;
+{% endif %}
     http2 on;
     server_name {{ forgejo_domain }};
 
     ssl_certificate {{ forgejo_tls_cert }};
     ssl_certificate_key {{ forgejo_tls_key }};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    # Off because the modern cipher suites are ordered sensibly by the client,
+    # which knows its own hardware; server preference mainly pins old choices.
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:2m;
+    ssl_session_timeout 1h;
 {% else %}
 server {
     listen 80;
@@ -35,8 +47,20 @@ server {
     # the registry with a 413 and nothing useful in the body.
     client_max_body_size {{ forgejo_client_max_body_size }};
 
+{% if forgejo_nginx_blocked_agents | length > 0 %}
+    # 403 rather than 444, so the refusal is logged and visible: a silently
+    # dropped connection is indistinguishable from a broken server when
+    # somebody comes to debug it months later. See the map for the numbers.
+    if ($forgejo_blocked_ua) {
+        return 403;
+    }
+
+{% endif %}
     location / {
         proxy_pass http://{{ forgejo_http_addr }}:{{ forgejo_http_port }};
+        # 1.1, not the proxy default of 1.0: keepalive to the backend, and
+        # chunked request bodies, which large package uploads use.
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

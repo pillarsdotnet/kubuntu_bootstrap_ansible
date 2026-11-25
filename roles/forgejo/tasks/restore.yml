@@ -29,6 +29,10 @@
         that:
           - "forgejo_existing.status.ActiveState | default('inactive') != 'active'"
 
+    # Skipped when the dump is already on this host; see
+    # forgejo_restore_dump_remote in defaults. The variable below is what the
+    # rest of this file unpacks, so the two paths converge here and nothing
+    # downstream has to care which one was used.
     - name: "Copy the dump across"
       ansible.builtin.copy:
         dest: "/var/tmp/forgejo-restore.zip"
@@ -36,6 +40,31 @@
         mode: "u=rw,g=r,o="
         owner: "{{ forgejo_user }}"
         src: "{{ forgejo_restore_dump }}"
+      when: "not (forgejo_restore_dump_remote | bool)"
+
+    - name: "Confirm a dump said to be on this host really is"
+      ansible.builtin.stat:
+        path: "{{ forgejo_restore_dump }}"
+      register: "forgejo_remote_dump"
+      when: "forgejo_restore_dump_remote | bool"
+
+    - name: "Fail on a remote dump that is not there"
+      ansible.builtin.assert:
+        fail_msg: >-
+          forgejo_restore_dump_remote is set and {{ forgejo_restore_dump }}
+          does not exist on this host. Send it there first, or clear the flag
+          and let the controller copy it.
+        quiet: true
+        that:
+          - "forgejo_remote_dump.stat.exists | default(false)"
+      when: "forgejo_restore_dump_remote | bool"
+
+    - name: "Settle on which archive is being unpacked"
+      ansible.builtin.set_fact:
+        forgejo_restore_archive: >-
+          {{ forgejo_restore_dump
+             if (forgejo_restore_dump_remote | bool)
+             else '/var/tmp/forgejo-restore.zip' }}
 
     - name: "Create the unpack directory"
       ansible.builtin.file:
@@ -52,7 +81,7 @@
         group: "{{ forgejo_group }}"
         owner: "{{ forgejo_user }}"
         remote_src: true
-        src: "/var/tmp/forgejo-restore.zip"
+        src: "{{ forgejo_restore_archive }}"
 
     # app.ini comes from the dump rather than from a template, because the
     # SECRET_KEY inside it is the only thing that can decrypt the two-factor
@@ -68,19 +97,6 @@
         remote_src: true
         src: "/var/tmp/forgejo-restore/app.ini"
 
-    # mode: preserve, not a fixed mode. A repository tree has directories,
-    # loose objects, packfiles and hooks with deliberately different
-    # permissions; flattening them to one mode would make hooks unexecutable
-    # or objects group-readable, and the dump already carries the right ones.
-    - name: "Restore the repositories"
-      ansible.builtin.copy:
-        dest: "{{ forgejo_home }}/"
-        group: "{{ forgejo_group }}"
-        mode: "preserve"
-        owner: "{{ forgejo_user }}"
-        remote_src: true
-        src: "/var/tmp/forgejo-restore/repos/"
-
     - name: "Restore the data directory"
       ansible.builtin.copy:
         dest: "{{ forgejo_home }}/data/"
@@ -89,6 +105,54 @@
         owner: "{{ forgejo_user }}"
         remote_src: true
         src: "/var/tmp/forgejo-restore/data/"
+
+    # Into forgejo_repo_root, which is under data/ and is NOT
+    # forgejo_home/repositories - see the note on that variable in defaults.
+    # The dump always calls this directory "repos/" whatever the source
+    # instance called it, so restoring it anywhere else gives a forge that
+    # works in every visible respect and has no repositories. After the data
+    # directory, so that an instance whose dump does carry its repositories
+    # inside data/ ends up with these ones rather than those.
+    #
+    # mode: preserve, not a fixed mode. A repository tree has directories,
+    # loose objects, packfiles and hooks with deliberately different
+    # permissions; flattening them to one mode would make hooks unexecutable
+    # or objects group-readable, and the dump already carries the right ones.
+    - name: "Restore the repositories"
+      ansible.builtin.copy:
+        dest: "{{ forgejo_repo_root }}/"
+        group: "{{ forgejo_group }}"
+        mode: "preserve"
+        owner: "{{ forgejo_user }}"
+        remote_src: true
+        src: "/var/tmp/forgejo-restore/repos/"
+
+    # Cheap, and it catches the failure this role actually had: a restore that
+    # put the repositories somewhere Forgejo does not look. A forge with no
+    # repositories at all is a restore that did not work, whatever else
+    # succeeded.
+    - name: "Count what landed in the repository root"
+      ansible.builtin.find:
+        depth: 2
+        file_type: "directory"
+        patterns: "*.git"
+        paths: "{{ forgejo_repo_root }}"
+        recurse: true
+      register: "forgejo_restored_repos"
+
+    - name: "Confirm the repositories are where Forgejo will look for them"
+      ansible.builtin.assert:
+        fail_msg: >-
+          No *.git directories under {{ forgejo_repo_root }} after the
+          restore. Check REPO_ROOT_PATH in the restored app.ini against
+          forgejo_repo_root: the dump stores repositories as "repos/"
+          regardless of where the source host kept them.
+        quiet: true
+        success_msg: >-
+          {{ forgejo_restored_repos.matched }} repositories restored to
+          {{ forgejo_repo_root }}
+        that:
+          - "forgejo_restored_repos.matched | int > 0"
 
     # `forgejo dump` writes the database as forgejo-db.sql, which is SQL text
     # rather than a SQLite file. Copying it into place as forgejo.db would
@@ -113,6 +177,24 @@
     # Only now, after the data is in place, are the host-specific settings
     # changed. Everything else in app.ini is left exactly as the source host
     # had it.
+    # APP_NAME sits above every section header, and "section: DEFAULT" does
+    # NOT address that: community.general.ini_file takes the name literally
+    # and appends a real [DEFAULT] block at the end of the file. Measured on
+    # racknerd 2026-11-25 - the result was an app.ini carrying APP_NAME twice,
+    # once saying "Forgejo on homelab" at the top and once saying "Forgejo on
+    # racknerd" in a section go-ini folds into the same namespace. Leaving
+    # "section" null edits the key where it actually lives.
+    - name: "Name the restored instance for the host serving it"
+      community.general.ini_file:
+        group: "{{ forgejo_group }}"
+        mode: "u=rw,g=r,o="
+        option: "APP_NAME"
+        owner: "root"
+        path: "{{ forgejo_config_dir }}/app.ini"
+        section:
+        value: "{{ forgejo_app_name }}"
+      notify: "Restart Forgejo"
+
     - name: "Point the restored instance at this host"
       community.general.ini_file:
         group: "{{ forgejo_group }}"
@@ -123,9 +205,6 @@
         section: "{{ item.section }}"
         value: "{{ item.value }}"
       loop:
-        - section: "DEFAULT"
-          option: "APP_NAME"
-          value: "{{ forgejo_app_name }}"
         - section: "server"
           option: "DOMAIN"
           value: "{{ forgejo_domain }}"
@@ -146,20 +225,53 @@
           value: "{{ forgejo_http_port }}"
       notify: "Restart Forgejo"
 
+    # git-over-ssh works by Forgejo writing command= lines into the run
+    # account's authorized_keys, and that file is NOT in the dump: it lives at
+    # forgejo_home/.ssh, outside the data directory the dump packs. Restore
+    # without this and the forge is perfect in every visible way while every
+    # ssh clone and push is refused, which is the failure that looks like a
+    # networking problem and is not one.
+    #
+    # The keys themselves are in the database, so this rewrites the file from
+    # the rows that were just restored.
+    - name: "Rebuild the ssh authorized_keys from the restored database"
+      ansible.builtin.command:
+        argv:
+          - "{{ forgejo_binary }}"
+          - "--config"
+          - "{{ forgejo_config_dir }}/app.ini"
+          - "admin"
+          - "regenerate"
+          - "keys"
+      become: true
+      become_user: "{{ forgejo_user }}"
+      changed_when: true
+      environment:
+        GITEA_WORK_DIR: "{{ forgejo_home }}"
+
     - name: "Record what was restored, so a re-run does not roll it back"
       ansible.builtin.copy:
         content: |
           {{ forgejo_restore_dump | basename }}
-          restored {{ ansible_date_time.iso8601 }}
+          restored {{ ansible_facts['date_time']['iso8601'] }}
         dest: "{{ forgejo_home }}/.restored-from"
         group: "{{ forgejo_group }}"
         mode: "u=rw,g=r,o="
         owner: "{{ forgejo_user }}"
 
+    # The unpacked tree always goes. The archive goes only if this role is
+    # what put it there: a dump the operator placed on the host by hand is
+    # theirs, and deleting 4.2 GiB somebody may still need is not this role's
+    # call to make.
     - name: "Remove the unpacked dump"
       ansible.builtin.file:
         path: "{{ item }}"
         state: "absent"
       loop:
         - "/var/tmp/forgejo-restore"
-        - "/var/tmp/forgejo-restore.zip"
+
+    - name: "Remove the copied archive"
+      ansible.builtin.file:
+        path: "/var/tmp/forgejo-restore.zip"
+        state: "absent"
+      when: "not (forgejo_restore_dump_remote | bool)"

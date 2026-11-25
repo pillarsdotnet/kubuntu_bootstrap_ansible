@@ -34,15 +34,43 @@
       tags: ["nut"]
     # Also off everywhere by default. Exists so the forge can be stood up on
     # a second host while its usual one is unavailable; see
-    # roles/forgejo/defaults/main.yml.
-    - "forgejo"
-    - "printing"
+    # roles/forgejo/defaults/main.yml. Tagged because a migration is a
+    # sequence of deliberate steps - restore, then certificate, then runner -
+    # and each wants re-running without the rest of a setup pass.
+    - role: "forgejo"
+      tags: ["forgejo"]
+    # Tagged for the same reason as fileserver below: moving the printer to
+    # another host is a change to one role, and a full setup run on a host
+    # that is only acquiring a printer is a lot of unrelated risk.
+    - role: "printing"
+      tags: ["printing"]
     # Off everywhere but the host asked to serve shares; see
     # roles/fileserver/defaults/main.yml. After "printing" because both
     # install packages and neither depends on the other. Tagged so a share can
     # be added without a full setup run.
     - role: "fileserver"
       tags: ["fileserver"]
+    # Both off everywhere but the host asked to serve them, and both exist for
+    # the same reason as "forgejo" above: a service that normally lives on
+    # homelab needs somewhere else to be while that host is away. Tagged for
+    # the same reason too - a move is a sequence of deliberate steps.
+    - role: "calibre"
+      tags: ["calibre", "books"]
+    - role: "foundry"
+      tags: ["foundry", "game"]
+    # Keeps this site's dynamic DNS records current. Early enough to matter
+    # and late enough that the network is settled; off everywhere but the one
+    # host at a site that owns the job. See roles/ddns/defaults/main.yml.
+    - role: "ddns"
+      tags: ["ddns"]
+    # The shared compiler-object cache CI pulls from. Off everywhere but the
+    # host running the runners; see roles/sccache/defaults/main.yml.
+    - role: "sccache"
+      tags: ["sccache"]
+    # Receives the Home Library hourly disaster copy. Installs no library and
+    # serves nothing; see roles/library_peer/defaults/main.yml.
+    - role: "library_peer"
+      tags: ["library_peer"]
     - "terminal"
   post_tasks:
     # Package installation can add or enable units after bootstrap has run.

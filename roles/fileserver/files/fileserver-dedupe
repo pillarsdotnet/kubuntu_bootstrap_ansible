@@ -1,0 +1,143 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Deduplicate the backup shares with duperemove.
+#
+# Why this is worth running at all: Windows Backup rewrites its whole system
+# image on every run, so last night's image and tonight's are mostly the same
+# blocks stored under a different name. Hardlinking cannot help - no two files
+# are identical in full - and compression cannot either, because the
+# duplication is between files rather than inside one. Sharing extents is the
+# only thing that collapses them, and on btrfs that is what the
+# FIDEDUPERANGE ioctl does.
+#
+# Three things this script is careful about, each of which has a failure mode
+# worth avoiding:
+#
+#   * It takes an exclusive lock. Two duperemove runs against one hashfile
+#     corrupt it, and a nightly timer plus somebody running it by hand is all
+#     it takes. A second run exits saying so rather than queueing.
+#   * It checks the filesystem really supports reflinks before starting.
+#     duperemove against ext4 fails per-extent, thousands of times, and the
+#     run looks like it worked.
+#   * It reports free space either side. The whole point is the delta, and
+#     without it there is no way to tell a run that saved 200 GiB from one
+#     that found nothing - duperemove's own summary reports what it *could*
+#     share, not what the filesystem actually gave back.
+set -euo pipefail
+
+hashfile=""
+blocksize="128K"
+paths=()
+
+usage() {
+  echo "usage: $0 --hashfile FILE [--blocksize SIZE] --path DIR [--path DIR ...]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --hashfile)
+      [ $# -ge 2 ] || usage
+      hashfile="$2"
+      shift 2
+      ;;
+    --blocksize)
+      [ $# -ge 2 ] || usage
+      blocksize="$2"
+      shift 2
+      ;;
+    --path)
+      [ $# -ge 2 ] || usage
+      paths+=("$2")
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$hashfile" ] || usage
+[ ${#paths[@]} -gt 0 ] || usage
+
+for path in "${paths[@]}"; do
+  [ -d "$path" ] || { echo "no such directory: $path" >&2; exit 1; }
+  # stat -f reports the filesystem type by name. btrfs and xfs can share
+  # extents; ext4 cannot, and duperemove on it fails one extent at a time
+  # while still exiting zero, which is the worst of both worlds.
+  fstype="$(stat -f -c %T "$path")"
+  case "$fstype" in
+    btrfs | xfs) ;;
+    *)
+      echo "$path is on $fstype, which cannot share extents - refusing" >&2
+      logger -t fileserver-dedupe -p daemon.err -- \
+        "refusing to deduplicate $path: $fstype does not support reflinks" || true
+      exit 1
+      ;;
+  esac
+done
+
+mkdir -p "$(dirname "$hashfile")"
+
+# The lock is held on a file beside the hashfile rather than on the hashfile
+# itself: duperemove opens and rewrites that one, and a lock on a file being
+# replaced underneath is not a lock.
+lockfile="${hashfile}.lock"
+exec 9>"$lockfile"
+if ! flock -n 9; then
+  echo "another deduplication run holds $lockfile - exiting" >&2
+  logger -t fileserver-dedupe -p daemon.warning -- \
+    "skipped: another run already holds the lock" || true
+  exit 0
+fi
+
+# Measured on the first path's filesystem; every path is expected to be on the
+# same one, which is the case when they are all shares under fileserver_root.
+avail_before="$(df --output=avail "${paths[0]}" | tail -1 | tr -d ' ')"
+started="$(date +%s)"
+
+echo "deduplicating: ${paths[*]}"
+echo "hashfile: $hashfile  blocksize: $blocksize"
+
+# -r  recurse into the share
+# -d  actually submit the dedupe requests, rather than only reporting
+# -h  print sizes in human-readable units
+# --hashfile       keep hashes between runs, so a run reads only what changed
+# --skip-zeroes    a sparse system image is mostly holes; sharing those costs
+#                  metadata and gains nothing
+rc=0
+duperemove \
+  -r -d -h \
+  -b "$blocksize" \
+  --hashfile="$hashfile" \
+  --skip-zeroes \
+  "${paths[@]}" || rc=$?
+
+finished="$(date +%s)"
+
+# btrfs hands back the extents duperemove unshared on the next transaction
+# commit, not at the moment duperemove returns, so a reading taken straight
+# away shows no change whatsoever. Measured on acermagic 2026-11-25: a run
+# that really did reclaim 400 MiB of 800 reported "+0 MiB" without this, which
+# is worse than reporting nothing - it says the run found nothing.
+sync
+if [ "$(stat -f -c %T "${paths[0]}")" = "btrfs" ]; then
+  btrfs filesystem sync "${paths[0]}" >/dev/null 2>&1 || true
+fi
+avail_after="$(df --output=avail "${paths[0]}" | tail -1 | tr -d ' ')"
+
+elapsed=$(( finished - started ))
+# df reports 1K blocks. Reclaimed space is a positive delta in available
+# space; a negative one simply means the backups grew during the run, which
+# is normal and not an error.
+reclaimed_mb=$(( (avail_after - avail_before) / 1024 ))
+
+summary="$(printf 'duperemove finished in %dm%02ds, free space changed by %+d MiB' \
+  $(( elapsed / 60 )) $(( elapsed % 60 )) "$reclaimed_mb")"
+echo "$summary"
+logger -t fileserver-dedupe -p daemon.info -- "$summary" || true
+
+if [ "$rc" -ne 0 ]; then
+  echo "duperemove exited $rc" >&2
+  logger -t fileserver-dedupe -p daemon.err -- "duperemove exited $rc" || true
+  exit "$rc"
+fi

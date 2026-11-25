@@ -1,0 +1,65 @@
+---
+# Foundry Virtual Tabletop: a Node application serving a game table over HTTP
+# and a WebSocket.
+#
+# Off everywhere until a host asks for it. Written for the same window as
+# roles/forgejo and roles/calibre - see roles/forgejo/README.md.
+#
+# TWO THINGS THAT WILL BITE, both stated here because neither is recoverable
+# by re-running the role:
+#
+#   * The licence permits ONE running instance. Enabling this role on a
+#     second host while the first still serves is not a performance problem,
+#     it is a licence violation, and Foundry notices. Moving the service
+#     means stopping the old one, not standing a second one beside it.
+#   * The data directory IS the service. It holds the licence, the worlds,
+#     the installed systems and modules, and every uploaded asset. The role
+#     creates it if absent but has nothing to put in it; an empty one gives
+#     a working Foundry with no game in it.
+foundry_enabled: false
+
+foundry_user: "foundry"
+foundry_group: "foundry"
+foundry_home: "/home/foundry"
+# The unpacked application - main.js and its node_modules. Licensed, so this
+# role does NOT download or install it: fetch the distribution from the
+# Foundry site and unpack it here, or copy it from the host it is moving off.
+foundry_app_dir: "{{ foundry_home }}/foundryvtt"
+# Everything that is actually yours. Back this up; the application above is
+# re-downloadable and this is not.
+foundry_data_dir: "{{ foundry_home }}/foundrydata"
+
+# An absolute path on purpose. On homelab, ~/bin/node in PATH is a symlink to
+# bun, which does not run this - so naming the interpreter by path is what
+# keeps the unit working regardless of whose PATH systemd happens to inherit.
+foundry_node_binary: "/usr/bin/node"
+
+foundry_port: 30000
+# Passed to Foundry as --hostname, and it matters for more than cosmetics:
+# Foundry builds invite URLs from it. Empty follows foundry_domain.
+foundry_hostname: ""
+# Foundry is told TLS terminates in front of it, so it writes https:// URLs
+# and sets secure cookies while itself speaking plain HTTP on loopback.
+foundry_proxy_ssl: true
+foundry_proxy_port: 443
+# Shown in the unit description only, so "systemctl status" says which
+# version is running without anyone opening a browser.
+foundry_version: ""
+
+# systemd MemoryMax. Empty leaves it unbounded. Measured at 309 MiB on
+# homelab with one world loaded.
+foundry_memory_max: ""
+
+# nginx in front. TLS is not optional in practice: browsers refuse a
+# WebSocket upgrade from an https page to a plain ws:// endpoint, so a
+# half-configured vhost gives a table that loads and then never connects.
+foundry_nginx_enabled: true
+foundry_domain: ""
+foundry_tls_cert: ""
+foundry_tls_key: ""
+# See the identical note in roles/forgejo/defaults/main.yml: a wildcard
+# "listen 443" on a host sharing the port with tailscaled aborts the entire
+# nginx reload rather than just failing itself.
+foundry_nginx_listen_addresses: []
+# World and asset uploads through the browser are large.
+foundry_client_max_body_size: "1024m"

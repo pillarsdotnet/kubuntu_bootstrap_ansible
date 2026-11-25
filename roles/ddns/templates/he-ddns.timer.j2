@@ -1,0 +1,12 @@
+# Managed by Ansible (roles/ddns). Do not edit by hand.
+[Unit]
+Description=Refresh HE dynamic DNS every {{ ddns_interval }}
+
+[Timer]
+# Soon after boot, because a reboot is often what follows an address change.
+OnBootSec=2min
+OnUnitActiveSec={{ ddns_interval }}
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

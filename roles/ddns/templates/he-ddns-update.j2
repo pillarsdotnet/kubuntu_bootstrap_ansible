@@ -1,0 +1,33 @@
+#!/bin/bash
+# Managed by Ansible (roles/ddns). Do not edit by hand.
+#
+# Keep HE dynamic DNS pointed at this site's public IPv4. One record per key
+# file: /etc/he-ddns/NAME.key updates NAME.{{ ddns_domain }}. Updates only on
+# change, so HE sees no redundant traffic.
+set -euo pipefail
+# Without this an empty key directory makes the loop run once with the literal
+# glob, and the read below then fails under "set -e" - a confusing way to
+# report "nothing is configured".
+shopt -s nullglob
+
+keyfiles=(/etc/he-ddns/*.key)
+if [ -z "${keyfiles[0]:-}" ]; then
+  echo "no key files in /etc/he-ddns - nothing to update" >&2
+  exit 0
+fi
+
+ip=$(curl -4 -fsS --max-time 20 https://ipv4.icanhazip.com | tr -d "\n")
+rc=0
+for keyfile in "${keyfiles[@]}"; do
+  host="$(basename "$keyfile" .key).{{ ddns_domain }}"
+  key=$(tr -d "\n" <"$keyfile")
+  # Asked of the authoritative server directly, not a resolver: a cached
+  # answer would make a stale record look current for the length of its TTL.
+  current=$(dig +short @ns1.he.net "$host" A | tail -1)
+  [ "$ip" = "$current" ] && continue
+  resp=$(curl -fsS https://dyn.dns.he.net/nic/update \
+    -d "hostname=$host" --data-urlencode "password=$key" -d "myip=$ip")
+  logger -t he-ddns "$host -> $ip: $resp"
+  case $resp in good*|nochg*) ;; *) echo "$host: $resp" >&2; rc=1 ;; esac
+done
+exit $rc

@@ -1,0 +1,9 @@
+# Managed by Ansible (roles/ddns). Do not edit by hand.
+[Unit]
+Description=Update HE dynamic DNS for this site's names
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/he-ddns-update

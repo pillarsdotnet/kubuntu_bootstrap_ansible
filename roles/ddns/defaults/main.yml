@@ -1,0 +1,35 @@
+---
+# Keep Hurricane Electric dynamic DNS records pointed at this site's public
+# IPv4 address.
+#
+# Off everywhere until a host asks for it, and only ONE host at a site should
+# normally run it - though two are harmless, because the script updates only
+# when the published address differs from the measured one, so the second host
+# finds nothing to do.
+#
+# Why it matters here: the house has a Comcast-dynamic address, and the router
+# forwards 80, 443 and 65432 to one LAN address. The record is what lets
+# anything outside find the house at all - including the hourly home-library
+# disaster copy, which racknerd pushes to a name that resolves this way.
+#
+# This moved from homelab to acermagic on 2026-11-25, because homelab's
+# processor is going away for warranty replacement and a dynamic record that
+# nothing is refreshing goes stale the next time the ISP rotates the address.
+ddns_enabled: false
+
+# The zone the names below sit in. Each entry updates <name>.<ddns_domain>.
+ddns_domain: ""
+
+# The records to keep updated, as a list of {name, key}. The key is the
+# per-record update key from HE's dynamic DNS tab - NOT an account password -
+# and it belongs in host_vars encrypted with "ansible-vault encrypt_string".
+#
+# Note the names are site names rather than host names. "homelab" here means
+# "the house", and it keeps that spelling after the service moves hosts
+# because other things already resolve it - the home-library peer setting
+# among them. Renaming it would be a bigger change than it looks.
+ddns_names: []
+
+# How often to check. The check is one HTTPS request and one DNS lookup, and
+# sends an update only when they disagree, so this is cheap.
+ddns_interval: "10min"

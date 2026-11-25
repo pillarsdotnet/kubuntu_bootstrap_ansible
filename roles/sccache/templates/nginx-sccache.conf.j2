@@ -1,0 +1,31 @@
+# Managed by kubuntu_bootstrap_ansible (roles/sccache).
+#
+# A WebDAV store for sccache. No TLS and no authentication: it is bound to
+# addresses that are not routable from outside the host and restricted by the
+# allow list below, which is the whole of its access control. Keep it that way
+# - this accepts PUT from anyone it can hear.
+server {
+{% for listen_address in sccache_listen_addresses %}
+    listen {{ listen_address }}:{{ sccache_port }};
+{% endfor %}
+    server_name {{ sccache_server_names | join(' ') }};
+
+{% for allow_cidr in sccache_allow_cidrs %}
+    allow {{ allow_cidr }};
+{% endfor %}
+    deny all;
+
+    root {{ sccache_root }};
+    autoindex off;
+    client_max_body_size {{ sccache_max_body_size }};
+    # On the same filesystem as the store, so a finished upload is a rename
+    # rather than a copy across devices.
+    client_body_temp_path {{ sccache_root }}/.tmp;
+
+    location / {
+        dav_methods PUT DELETE MKCOL COPY MOVE;
+        dav_ext_methods PROPFIND OPTIONS;
+        dav_access user:rw group:rw all:r;
+        create_full_put_path on;
+    }
+}

@@ -1,0 +1,188 @@
+---
+# See defaults/main.yml for what this serves and why accounts are not managed
+# here.
+- name: "Serve an eBook library"
+  when: "calibre_enabled | bool"
+  block:
+    - name: "Fail early on a server with no name to answer to"
+      ansible.builtin.assert:
+        fail_msg: >-
+          calibre_domain must be set: the nginx vhost matches on server_name,
+          and an empty one produces a virtual host that answers for nothing
+          while looking installed.
+        quiet: true
+        that:
+          - "calibre_domain | length > 0"
+      when: "calibre_nginx_enabled | bool"
+
+    # install_recommends is false here deliberately, against the fleet-wide
+    # default: the calibre package recommends a desktop's worth of Qt for a
+    # host that is only ever going to run calibre-server. Its real Python and
+    # library dependencies are Depends and still arrive.
+    - name: "Install calibre"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        install_recommends: false
+        name: "calibre"
+        state: "present"
+
+    - name: "Create the calibre group"
+      ansible.builtin.group:
+        name: "{{ calibre_group }}"
+        state: "present"
+        system: true
+
+    # No shell: nothing logs in as this account, and the library is reached
+    # over HTTP or not at all.
+    - name: "Create the calibre user"
+      ansible.builtin.user:
+        comment: "calibre content server"
+        create_home: false
+        group: "{{ calibre_group }}"
+        home: "{{ calibre_root }}"
+        name: "{{ calibre_user }}"
+        shell: "/usr/sbin/nologin"
+        state: "present"
+        system: true
+
+    - name: "Create the directories the server owns"
+      ansible.builtin.file:
+        group: "{{ calibre_group }}"
+        mode: "u=rwx,g=rx,o="
+        owner: "{{ calibre_user }}"
+        path: "{{ item }}"
+        state: "directory"
+      loop:
+        - "{{ calibre_root }}"
+        - "{{ calibre_config_dir }}"
+        - "{{ calibre_library }}"
+
+    # A library is a directory with a metadata.db in it. Starting the server
+    # against an empty path does not fail - calibre creates a new, empty
+    # library and serves it, which looks like "all the books are gone" and is
+    # really "this is not the library you meant". Said plainly here rather
+    # than discovered later.
+    - name: "Look for a library at the configured path"
+      ansible.builtin.stat:
+        path: "{{ calibre_library }}/metadata.db"
+      register: "calibre_metadata"
+
+    - name: "Say so when the library has not been put in place yet"
+      ansible.builtin.debug:
+        msg: >-
+          Note: {{ calibre_library }}/metadata.db does not exist, so calibre
+          will create and serve an EMPTY library. Copy the library across
+          before trusting this host, and restart calibre-server afterwards.
+      when: "not calibre_metadata.stat.exists"
+
+    - name: "Install the calibre unit"
+      ansible.builtin.template:
+        dest: "/etc/systemd/system/calibre-server.service"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "calibre-server.service.j2"
+      notify: "Restart calibre"
+
+    - name: "Enable calibre"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        enabled: true
+        name: "calibre-server"
+        state: "started"
+
+    - name: "Apply any restart before checking where it bound"
+      ansible.builtin.meta: "flush_handlers"
+
+    - name: "Read where the server actually bound"
+      ansible.builtin.command:
+        argv: ["ss", "-tlnH", "sport = :{{ calibre_port }}"]
+      changed_when: false
+      check_mode: false
+      register: "calibre_listener"
+
+    # This check exists because calibre does NOT fail when it cannot bind the
+    # address it was given. It logs "Trying to bind to the default interface"
+    # and binds the host's primary address instead - so a port conflict turns
+    # a loopback-only configuration into a publicly listening one, quietly.
+    #
+    # Measured on racknerd 2026-11-25: sitewatch.service already held
+    # 127.0.0.1:8080, and calibre came up on 96.44.137.73:8080 serving the
+    # whole library. Only the firewall's default-deny kept it unreachable.
+    - name: "Confirm it bound the address it was told to"
+      ansible.builtin.assert:
+        fail_msg: >-
+          calibre was told to listen on {{ calibre_listen }}:{{ calibre_port }}
+          but is on "{{ calibre_listener.stdout | trim | default('nothing', true) }}".
+          calibre falls back to the host's primary address when the requested
+          one is busy, rather than failing, so check what else holds that port
+          and give calibre a free one with calibre_port.
+        quiet: true
+        success_msg: >-
+          calibre is listening on {{ calibre_listen }}:{{ calibre_port }}
+        that:
+          - "calibre_listen ~ ':' ~ calibre_port in calibre_listener.stdout"
+
+    - name: "Serve the library through nginx"
+      when: "calibre_nginx_enabled | bool"
+      block:
+        - name: "Install nginx"
+          ansible.builtin.apt:
+            auto_install_module_deps: true
+            name: "nginx"
+            state: "present"
+
+        - name: "Deploy the calibre vhost"
+          ansible.builtin.template:
+            dest: "/etc/nginx/sites-available/calibre.conf"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+            src: "nginx-calibre.conf.j2"
+          notify: "Reload nginx for calibre"
+
+        - name: "Enable the calibre vhost"
+          ansible.builtin.file:
+            dest: "/etc/nginx/sites-enabled/calibre.conf"
+            src: "/etc/nginx/sites-available/calibre.conf"
+            state: "link"
+          notify: "Reload nginx for calibre"
+
+
+        # The vhost is live to nginx the moment the symlink exists, but not
+        # until a reload. So this is the window in which to test it: against
+        # the real nginx.conf, which is the only context where the conf.d maps
+        # it references and the certificate paths it names actually exist.
+        #
+        # There is no `validate:` on the template above on purpose. That option
+        # tests a temporary copy in isolation, and the obvious incantation -
+        # `nginx -t -g 'include %s;'` - injects the file into nginx's MAIN
+        # context, where a `server` block is not allowed at all. It therefore
+        # failed for every possible vhost, valid or not; measured on racknerd
+        # 2026-11-25.
+        - name: "Check the whole configuration with the vhost linked in"
+          block:
+            - name: "Test the nginx configuration"
+              ansible.builtin.command:
+                argv: ["nginx", "-t"]
+              changed_when: false
+          rescue:
+            - name: "Unlink the vhost so a later reload cannot fail on it"
+              ansible.builtin.file:
+                path: "/etc/nginx/sites-enabled/calibre.conf"
+                state: "absent"
+
+            - name: "Report the configuration this vhost would have broken"
+              ansible.builtin.fail:
+                msg: >-
+                  nginx rejected its configuration with the calibre vhost
+                  linked in, so the link has been removed and nothing was
+                  reloaded. The most common causes are a certificate path that
+                  does not exist yet and a listen address already held by
+                  another process.
+
+        - name: "Enable nginx"
+          ansible.builtin.systemd_service:
+            enabled: true
+            name: "nginx"
+            state: "started"

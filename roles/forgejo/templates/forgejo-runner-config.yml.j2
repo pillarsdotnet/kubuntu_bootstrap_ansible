@@ -1,0 +1,64 @@
+{# The docker --memory limit is the control that actually bounds a build; the
+   unit's MemoryMax does not. See defaults/main.yml. #}
+{% set memory_option = ("--memory=" ~ forgejo_runner_container_memory)
+                       if forgejo_runner_container_memory | length > 0 else "" %}
+{% set container_options = [memory_option, forgejo_runner_container_options]
+                           | select | join(" ") | trim %}
+# Managed by Ansible (roles/forgejo). Do not edit by hand.
+#
+# Only what this estate actually sets. `forgejo-runner generate-config` emits
+# several hundred lines that are mostly commented examples, and keeping those
+# here would mean every later change arrives as a diff against documentation
+# rather than against configuration.
+log:
+  level: "info"
+  # What the forge shows in the job log, as distinct from what the daemon
+  # prints locally.
+  job_level: "info"
+
+runner:
+  file: ".runner"
+  capacity: {{ forgejo_runner_capacity }}
+  # Empty on purpose. Job environment comes from .env, which this role owns:
+  # until 2026-11-22 homelab injected the two A_TEST_ENV_NAME_* examples that
+  # generate-config ships here into every job it ran.
+  envs: {}
+  env_file: ".env"
+  timeout: "{{ forgejo_runner_timeout }}"
+  # Let a job finish when the daemon is asked to stop, rather than cancelling
+  # it. The same value as the job timeout, so restarting the runner never
+  # truncates a build that was going to succeed.
+  shutdown_timeout: "{{ forgejo_runner_timeout }}"
+  insecure: false
+  fetch_timeout: "30s"
+  fetch_interval: "2s"
+  report_interval: "1s"
+  # Empty means "use what .runner carries", which is what registration wrote
+  # from forgejo_runner_labels. Setting them here would quietly outrank it.
+  labels: []
+
+cache:
+  enabled: true
+  # A random free port, and the runner tells each job where to find it.
+  port: 0
+  dir: ""
+
+container:
+  # Empty means a fresh network per job. That is what the address pools in
+  # roles/docker exist to supply: the default pool yields about 31 networks
+  # and a wide push exhausted it on 2026-11-21.
+  network: ""
+  enable_ipv6: false
+  privileged: false
+  options: {{ container_options | to_json }}
+  workdir_parent:
+  valid_volumes: {{ forgejo_runner_valid_volumes | to_json }}
+  # No docker socket inside the job container. A workflow that needs to build
+  # an image has to be given that deliberately, rather than every job running
+  # with the keys to the host.
+  docker_host: "-"
+  force_pull: false
+  force_rebuild: false
+
+host:
+  workdir_parent:

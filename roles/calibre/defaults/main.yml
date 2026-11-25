@@ -1,0 +1,72 @@
+---
+# The calibre content server, which offers two things on one port: a
+# browser-based reader at the site root, and an OPDS catalogue at /opds that
+# Android reader apps (KOReader, Librera) browse and download from for
+# offline reading.
+#
+# Off everywhere until a host asks for it. The role exists for the same
+# reason roles/forgejo does: so the library can be served from a second host
+# while its usual one is away. See roles/forgejo/README.md for the window
+# this was written for.
+calibre_enabled: false
+
+calibre_user: "calibre"
+calibre_group: "calibre"
+# Everything the service owns sits under one directory: the library itself,
+# the configuration, the account database and the logs. That is what makes
+# moving it to another host an rsync of a single path.
+calibre_root: "/srv/calibre"
+calibre_library: "{{ calibre_root }}/library"
+calibre_config_dir: "{{ calibre_root }}/config"
+calibre_userdb: "{{ calibre_root }}/users.sqlite"
+
+# Where the server listens.
+#
+# 0.0.0.0 lets LAN clients reach http://<host>:8080 directly while nginx
+# terminates TLS for the public name, and that is a deliberate trade rather
+# than an oversight: the router forwards only 80 and 443, so the port is not
+# reachable from the internet, but a client using the bare address does send
+# its password over the LAN in clear text. Set 127.0.0.1 to require TLS
+# everywhere, at the cost of breaking any reader app pointed at the port.
+calibre_listen: "0.0.0.0"
+calibre_port: 8080
+
+# Authentication. There is no default for "off", because the server offers
+# download of the entire library to anyone who can reach it.
+calibre_auth: true
+calibre_auth_mode: "basic"
+# Addresses whose X-Forwarded-For header is believed. This must name the
+# proxy and nothing else: widen it and a client can forge its own address,
+# which defeats the ban counter below by making every failure look like it
+# came from somewhere new.
+calibre_trusted_ips: ["127.0.0.1"]
+calibre_ban_after: 5
+calibre_ban_for: 10
+
+# Accounts are deliberately NOT managed here. calibre keeps them in its own
+# sqlite database with its own hashing and offers no non-interactive way to
+# set one, so a role that tried would be reimplementing that. Manage them
+# with:
+#   sudo -u calibre calibre-server --manage-users --userdb <calibre_userdb>
+# The database lives under calibre_root, so a host that receives the library
+# receives the accounts with it and nothing needs re-entering.
+
+# systemd MemoryMax. Empty leaves it unbounded. Measured at 177 MiB on
+# homelab serving 313 books, so this is cheap insurance on a shared host
+# rather than a real constraint.
+calibre_memory_max: ""
+
+# nginx in front, terminating TLS. The role will not request a certificate:
+# point it at one that exists, or leave TLS off and put your own proxy there.
+calibre_nginx_enabled: true
+calibre_domain: ""
+calibre_tls_cert: ""
+calibre_tls_key: ""
+# See the identical note in roles/forgejo/defaults/main.yml: on a host that
+# shares port 443 with tailscaled, a wildcard "listen 443" cannot bind and
+# nginx does not merely drop this vhost - the reload aborts and takes every
+# other site on the machine with it.
+calibre_nginx_listen_addresses: []
+# Bounds an upload through the web interface, if one is ever enabled. The
+# largest book in homelab's library is a few tens of MB.
+calibre_client_max_body_size: "256m"

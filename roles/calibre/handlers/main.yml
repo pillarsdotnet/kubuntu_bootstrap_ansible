@@ -1,0 +1,11 @@
+---
+- name: "Restart calibre"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "calibre-server"
+    state: "restarted"
+
+- name: "Reload nginx for calibre"
+  ansible.builtin.systemd_service:
+    name: "nginx"
+    state: "reloaded"

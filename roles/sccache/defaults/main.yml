@@ -1,0 +1,56 @@
+---
+# A shared compiler-object cache for CI, served over WebDAV by nginx.
+#
+# `sccache` points at this with SCCACHE_WEBDAV_ENDPOINT and stores Rust
+# objects in it, so a build on one host warms the next build anywhere. It is
+# the sibling of the plain bind-mounted ccache directory the C/C++ builds use;
+# the difference is only that sccache speaks HTTP and ccache reads a path.
+#
+# Off everywhere until a host asks for it. It stores no secrets, but it is a
+# writable endpoint and a cache poisoned on purpose is a supply-chain problem,
+# which is why the address and allow lists below default to loopback.
+#
+# Moved from homelab to racknerd on 2026-11-25: the endpoint was hard-coded as
+# http://10.0.0.2:8088 in the timesheet workflow, and a LAN address is not
+# reachable from a runner on a VPS.
+sccache_enabled: false
+
+sccache_root: "/srv/sccache"
+sccache_port: 8088
+
+# Addresses to bind.
+#
+# The tempting choice on a host whose runner uses the docker backend is the
+# docker bridge gateway, 172.17.0.1 - reachable from every container, never
+# routable from outside. Do not do it: nginx cannot bind an address that does
+# not exist, docker0 does not exist until docker has started, and nginx has no
+# ordering against docker. One reboot in which nginx wins the race and nginx
+# fails to start entirely, taking every other site on the host with it.
+#
+# So bind all addresses and keep the cache off the public path with two
+# independent controls instead, neither of which depends on boot order:
+# sccache_allow_cidrs below, enforced by nginx, and a firewall whose default
+# incoming policy is deny. Both must exclude the public path; the assertion in
+# tasks/main.yml refuses an empty allow list, and the comment on
+# sccache_ufw_from says what to open.
+sccache_listen_addresses: ["127.0.0.1"]
+# Where the role's own end-to-end probe connects. Must be an address this
+# host answers on and which the allow list covers.
+sccache_probe_address: "127.0.0.1"
+# The name the vhost answers to. A job container is given this name by the
+# runner's --add-host, so the workflow needs no address in it.
+sccache_server_names: ["sccache"]
+
+# Who may read and write, as nginx allow rules. Everything else is denied.
+# 172.16.0.0/12 covers docker's default pools; narrow it if your pools are
+# narrower.
+sccache_allow_cidrs: ["127.0.0.1"]
+
+# Object files, not web pages.
+sccache_max_body_size: "1g"
+
+# Open the port to the same CIDRs in ufw. Needed where ufw's default incoming
+# policy is deny, because a container reaching a host-local address arrives on
+# INPUT and is filtered like anything else - the usual symptom is that the
+# cache silently never gets a hit. Empty adds no rules.
+sccache_ufw_from: []

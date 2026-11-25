@@ -1,0 +1,36 @@
+---
+# Accept the Home Library disaster copy.
+#
+# The active library node pushes an hourly copy of its database and covers to
+# its peer over ssh. This role makes a host able to RECEIVE that copy. It does
+# not install the library, and the host does not become able to serve it: the
+# copy simply lands in a directory, which is all the sending side wants.
+#
+# Off everywhere until a host asks for it.
+#
+# Why it exists: until 2026-11-25 the copy went to homelab, whose processor is
+# going away for warranty replacement. The sending side addresses its peer by
+# name, and the router forwards port 65432 to whichever LAN address answers,
+# so the copy follows the 10.0.0.2 takeover with no change on the sender at
+# all - see roles/forgejo/README.md. This role is the receiving half.
+library_peer_enabled: false
+
+# Must match the account the sender's rsync preserves ownership for. rsync
+# maps ownership by NAME rather than number, so a host with an account of this
+# name ends up with the files owned sensibly; a host without one gets whatever
+# numeric id the sender had, which may belong to something else entirely.
+library_peer_user: "home-library"
+library_peer_data_dir: "/var/lib/home-library"
+
+# The authorized_keys lines that let the sender in, verbatim, including their
+# options. Each should be a "restrict,command=..." forced command confining
+# rsync to the standby directory: the sender needs to write one directory and
+# nothing else, and that is exactly what it should be able to do.
+#
+# Authorise ONLY the sync key. The failover negotiation key is deliberately
+# left out - a host that cannot serve the library should not be answering
+# questions about who owns it.
+#
+# Public keys, so not vaulted; they live in host_vars because they are site
+# wiring rather than fleet policy.
+library_peer_authorized_keys: []

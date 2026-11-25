@@ -97,7 +97,9 @@
           mode: "u=rwx,g=rx,o="
         - path: "{{ forgejo_home }}/data"
           mode: "u=rwx,g=rx,o="
-        - path: "{{ forgejo_home }}/repositories"
+        # Not forgejo_home/repositories: see forgejo_repo_root in defaults.
+        # After data/ in this loop because it sits inside it.
+        - path: "{{ forgejo_repo_root }}"
           mode: "u=rwx,g=rx,o="
         - path: "{{ forgejo_home }}/.ssh"
           mode: "u=rwx,g=,o="
@@ -141,6 +143,27 @@
         name: "forgejo"
         state: "started"
 
+    # Surgical rather than templated: /etc/hosts carries the distribution's
+    # own entries and possibly another role's, so this edits one line and
+    # leaves the rest alone.
+    - name: "Resolve the forge's own name to this host"
+      ansible.builtin.lineinfile:
+        group: "root"
+        line: "{{ forgejo_local_hosts_address }}\t{{ forgejo_domain }}"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        path: "/etc/hosts"
+        regexp: "^\\S+\\s+{{ forgejo_domain | regex_escape }}\\s*$"
+        state: "present"
+      when: "forgejo_local_hosts_address | length > 0"
+
     - name: "Serve Forgejo through nginx"
       when: "forgejo_nginx_enabled | bool"
       ansible.builtin.import_tasks: "nginx.yml"
+
+# Outside the block above on purpose: a host may run a runner against a forge
+# that lives somewhere else, so this is gated on its own variable rather than
+# on forgejo_enabled.
+- name: "Run an Actions runner"
+  when: "forgejo_runner_enabled | bool"
+  ansible.builtin.import_tasks: "runner.yml"

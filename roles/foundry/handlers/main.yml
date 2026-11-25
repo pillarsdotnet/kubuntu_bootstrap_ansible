@@ -1,0 +1,11 @@
+---
+- name: "Restart Foundry"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "foundryvtt"
+    state: "restarted"
+
+- name: "Reload nginx for Foundry"
+  ansible.builtin.systemd_service:
+    name: "nginx"
+    state: "reloaded"

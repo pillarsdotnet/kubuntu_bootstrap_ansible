@@ -1,0 +1,174 @@
+---
+# See defaults/main.yml for the two things that bite: the single-instance
+# licence, and the fact that the data directory is the whole service.
+- name: "Serve a Foundry Virtual Tabletop"
+  when: "foundry_enabled | bool"
+  block:
+    - name: "Fail early on a table with no name to answer to"
+      ansible.builtin.assert:
+        fail_msg: >-
+          foundry_domain must be set. Foundry builds its invite URLs from the
+          hostname it is given, so an empty one produces a table that serves
+          locally and hands out links to nowhere.
+        quiet: true
+        that:
+          - "foundry_domain | length > 0"
+      when: "foundry_nginx_enabled | bool"
+
+    - name: "Create the Foundry group"
+      ansible.builtin.group:
+        name: "{{ foundry_group }}"
+        state: "present"
+        system: true
+
+    - name: "Create the Foundry user"
+      ansible.builtin.user:
+        comment: "Foundry Virtual Tabletop"
+        create_home: true
+        group: "{{ foundry_group }}"
+        home: "{{ foundry_home }}"
+        name: "{{ foundry_user }}"
+        shell: "/usr/sbin/nologin"
+        state: "present"
+        system: true
+
+    - name: "Create the application and data directories"
+      ansible.builtin.file:
+        group: "{{ foundry_group }}"
+        mode: "u=rwx,g=rx,o="
+        owner: "{{ foundry_user }}"
+        path: "{{ item }}"
+        state: "directory"
+      loop:
+        - "{{ foundry_home }}"
+        - "{{ foundry_app_dir }}"
+        - "{{ foundry_data_dir }}"
+
+    # Licensed software, so this role does not fetch it. Refusing here is
+    # the whole point: without main.js the unit starts, node exits
+    # immediately, and systemd restarts it forever - which reads as a crash
+    # loop rather than as "the application was never put there".
+    - name: "Look for the application"
+      ansible.builtin.stat:
+        path: "{{ foundry_app_dir }}/main.js"
+      register: "foundry_main_js"
+
+    - name: "Refuse to install a unit for an application that is not there"
+      ansible.builtin.assert:
+        fail_msg: >-
+          {{ foundry_app_dir }}/main.js does not exist. Foundry is licensed,
+          so this role does not download it: unpack the distribution into
+          {{ foundry_app_dir }}, or copy it from the host this is moving off,
+          and run again.
+        quiet: true
+        that:
+          - "foundry_main_js.stat.exists"
+
+    # Separate from the application check and only a warning, because an
+    # empty data directory is a legitimate first run - it is just very rarely
+    # what somebody moving a table wants.
+    - name: "Look for a world to serve"
+      ansible.builtin.stat:
+        path: "{{ foundry_data_dir }}/Data/worlds"
+      register: "foundry_worlds"
+
+    - name: "Say so when the data directory holds no worlds"
+      ansible.builtin.debug:
+        msg: >-
+          Note: no worlds under {{ foundry_data_dir }}/Data/worlds. Foundry
+          will start and serve an empty setup screen, and the licence it asks
+          for lives in this directory too. Copy the data across before
+          trusting this host.
+      when: "not foundry_worlds.stat.exists"
+
+    - name: "Install the Foundry unit"
+      ansible.builtin.template:
+        dest: "/etc/systemd/system/foundryvtt.service"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "foundryvtt.service.j2"
+      notify: "Restart Foundry"
+
+    - name: "Enable Foundry"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        enabled: true
+        name: "foundryvtt"
+        state: "started"
+
+    - name: "Serve the table through nginx"
+      when: "foundry_nginx_enabled | bool"
+      block:
+        - name: "Install nginx"
+          ansible.builtin.apt:
+            auto_install_module_deps: true
+            name: "nginx"
+            state: "present"
+
+        # Before the vhost, which uses the variable this defines. nginx
+        # refuses to load a configuration referencing an undefined variable,
+        # so the order is load-bearing rather than tidy.
+        - name: "Deploy the WebSocket upgrade map"
+          ansible.builtin.template:
+            dest: "/etc/nginx/conf.d/foundry-websocket-upgrade.conf"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+            src: "nginx-websocket-upgrade.conf.j2"
+          notify: "Reload nginx for Foundry"
+
+        - name: "Deploy the Foundry vhost"
+          ansible.builtin.template:
+            dest: "/etc/nginx/sites-available/foundry.conf"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+            src: "nginx-foundry.conf.j2"
+          notify: "Reload nginx for Foundry"
+
+        - name: "Enable the Foundry vhost"
+          ansible.builtin.file:
+            dest: "/etc/nginx/sites-enabled/foundry.conf"
+            src: "/etc/nginx/sites-available/foundry.conf"
+            state: "link"
+          notify: "Reload nginx for Foundry"
+
+
+        # The vhost is live to nginx the moment the symlink exists, but not
+        # until a reload. So this is the window in which to test it: against
+        # the real nginx.conf, which is the only context where the conf.d maps
+        # it references and the certificate paths it names actually exist.
+        #
+        # There is no `validate:` on the template above on purpose. That option
+        # tests a temporary copy in isolation, and the obvious incantation -
+        # `nginx -t -g 'include %s;'` - injects the file into nginx's MAIN
+        # context, where a `server` block is not allowed at all. It therefore
+        # failed for every possible vhost, valid or not; measured on racknerd
+        # 2026-11-25.
+        - name: "Check the whole configuration with the vhost linked in"
+          block:
+            - name: "Test the nginx configuration"
+              ansible.builtin.command:
+                argv: ["nginx", "-t"]
+              changed_when: false
+          rescue:
+            - name: "Unlink the vhost so a later reload cannot fail on it"
+              ansible.builtin.file:
+                path: "/etc/nginx/sites-enabled/foundry.conf"
+                state: "absent"
+
+            - name: "Report the configuration this vhost would have broken"
+              ansible.builtin.fail:
+                msg: >-
+                  nginx rejected its configuration with the foundry vhost
+                  linked in, so the link has been removed and nothing was
+                  reloaded. The most common causes are a certificate path that
+                  does not exist yet and a listen address already held by
+                  another process.
+
+        - name: "Enable nginx"
+          ansible.builtin.systemd_service:
+            enabled: true
+            name: "nginx"
+            state: "started"

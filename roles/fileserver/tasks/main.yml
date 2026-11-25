@@ -52,12 +52,113 @@
           them with "ansible-vault encrypt_string".
         success_msg: "Every account has a password and every share has an account"
 
+    # Before anything creates a directory under fileserver_root. The other
+    # order is a trap: create the share directories first and the mount then
+    # hides them, which presents as "the backups are gone" when in fact they
+    # were written to the disk underneath and are still sitting there,
+    # unreachable, taking up the room the shares now need.
+    - name: "Mount the filesystem that holds the shares"
+      when: "fileserver_device | length > 0"
+      block:
+        # findfs resolves all three spellings - UUID=, LABEL= and a device
+        # path - so the check works whichever one host_vars used.
+        - name: "Find the device the shares live on"
+          ansible.builtin.command:
+            argv: ["findfs", "{{ fileserver_device }}"]
+          changed_when: false
+          failed_when: false
+          register: "fileserver_findfs"
+          check_mode: false
+
+        - name: "Refuse to serve shares when their disk is not attached"
+          ansible.builtin.assert:
+            fail_msg: >-
+              fileserver_device is {{ fileserver_device }} and nothing on this
+              host answers to it. The disk is unplugged, renamed, or failed.
+              Serving the shares anyway would create them on the root
+              filesystem instead, which is how a backup target silently
+              becomes a way to fill /.
+            quiet: true
+            that:
+              - "fileserver_findfs.rc == 0"
+              - "fileserver_findfs.stdout | trim | length > 0"
+
+        - name: "Read the filesystem already on it"
+          ansible.builtin.command:
+            argv:
+              - "blkid"
+              - "-o"
+              - "value"
+              - "-s"
+              - "TYPE"
+              - "{{ fileserver_findfs.stdout | trim }}"
+          changed_when: false
+          failed_when: false
+          register: "fileserver_blkid"
+          check_mode: false
+
+        # This role mounts and never formats. A device carrying the wrong
+        # filesystem, or none, is a mistake to report rather than a disk to
+        # overwrite - there is no way to tell "the new disk I meant to set up"
+        # from "the wrong disk, holding the only copy of something".
+        - name: "Refuse to serve shares from a disk this role would have to format"
+          ansible.builtin.assert:
+            fail_msg: >-
+              {{ fileserver_device }} resolves to
+              {{ fileserver_findfs.stdout | trim }}, which carries
+              "{{ fileserver_blkid.stdout | trim | default('no filesystem', true) }}"
+              rather than {{ fileserver_fstype }}. This role will not create a
+              filesystem: run mkfs by hand if that is really the disk you mean,
+              and note what was on it first.
+            quiet: true
+            that:
+              - "fileserver_blkid.stdout | trim == fileserver_fstype"
+
+        - name: "Mount it where the shares are served from"
+          ansible.posix.mount:
+            fstype: "{{ fileserver_fstype }}"
+            opts: "{{ fileserver_mount_options }}"
+            path: "{{ fileserver_root }}"
+            src: "{{ fileserver_device }}"
+            state: "mounted"
+
+        # Belt and braces, and it has a real failure mode behind it: with
+        # "nofail" in the options a mount that did not happen is not an error
+        # anywhere else, so without this check the run would carry on and
+        # write the shares to the root filesystem.
+        - name: "Read back what is actually mounted there"
+          ansible.builtin.command:
+            argv:
+              - "findmnt"
+              - "--noheadings"
+              - "--output"
+              - "SOURCE"
+              - "--target"
+              - "{{ fileserver_root }}"
+          changed_when: false
+          failed_when: false
+          register: "fileserver_findmnt"
+          check_mode: false
+
+        - name: "Confirm the shares sit on the disk and not on the one underneath"
+          ansible.builtin.assert:
+            fail_msg: >-
+              {{ fileserver_root }} is served by
+              "{{ fileserver_findmnt.stdout | trim }}", not by
+              {{ fileserver_findfs.stdout | trim }}. The mount did not take.
+            quiet: true
+            that:
+              - >-
+                fileserver_findmnt.stdout | trim
+                == fileserver_findfs.stdout | trim
+
     - name: "Install the server"
       ansible.builtin.apt:
         name: >-
           {{ ['samba']
              + (['wsdd'] if (fileserver_wsdd | bool) else [])
-             + (['rsync'] if (fileserver_replicate | length > 0) else []) }}
+             + (['rsync'] if (fileserver_replicate | length > 0) else [])
+             + (['duperemove'] if (fileserver_dedupe_enabled | bool) else []) }}
         state: present
         update_cache: true
         cache_valid_time: 3600
@@ -307,6 +408,53 @@
         enabled: true
         state: started
       when: "fileserver_replicate | length > 0"
+
+    # Nothing here is installed on a host that did not ask for it, so the
+    # script and its units are absent rather than present and inert.
+    - name: "Deduplicate the shares nightly"
+      when: "fileserver_dedupe_enabled | bool"
+      block:
+        - name: "Install the deduplication script"
+          ansible.builtin.copy:
+            dest: "/usr/local/sbin/fileserver-dedupe"
+            group: "root"
+            mode: "0755"
+            owner: "root"
+            src: "fileserver-dedupe"
+
+        # Outside the shares on purpose - see the note in defaults. Root-only
+        # because it is a map of what is stored in somebody's backups, even
+        # though it holds none of the contents.
+        - name: "Create the directory the hashfile lives in"
+          ansible.builtin.file:
+            group: "root"
+            mode: "0700"
+            owner: "root"
+            path: "{{ fileserver_dedupe_hashfile | dirname }}"
+            state: "directory"
+
+        - name: "Install the deduplication units"
+          ansible.builtin.template:
+            dest: "/etc/systemd/system/{{ item }}"
+            group: "root"
+            mode: "0644"
+            owner: "root"
+            src: "{{ item }}.j2"
+          loop:
+            - "fileserver-dedupe.service"
+            - "fileserver-dedupe.timer"
+          notify: "Reload systemd timers"
+
+        - name: "Reload systemd so the deduplication units are visible"
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+          changed_when: false
+
+        - name: "Enable the deduplication timer"
+          ansible.builtin.systemd_service:
+            enabled: true
+            name: "fileserver-dedupe.timer"
+            state: "started"
 
     # Everything above can succeed while a share is unreachable - a wrong
     # password, a path smbd cannot enter, a global that testparm accepts and

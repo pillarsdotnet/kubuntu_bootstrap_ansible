@@ -1,0 +1,29 @@
+# Managed by kubuntu_bootstrap_ansible (roles/foundry).
+[Unit]
+Description=Foundry Virtual Tabletop{{ " (" ~ foundry_version ~ ")" if foundry_version | length > 0 else "" }}
+Documentation=https://foundryvtt.com/kb/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ foundry_user }}
+Group={{ foundry_group }}
+WorkingDirectory={{ foundry_app_dir }}
+# Absolute node path on purpose: see foundry_node_binary in defaults.
+ExecStart={{ foundry_node_binary }} {{ foundry_app_dir }}/main.js \
+  --dataPath={{ foundry_data_dir }} \
+  --port={{ foundry_port }} --noupnp \
+{% if foundry_proxy_ssl | bool %}
+  --proxySSL=true --proxyPort={{ foundry_proxy_port }} \
+{% endif %}
+  --hostname={{ foundry_hostname | default(foundry_domain, true) }}
+Restart=on-failure
+RestartSec=5
+{% if foundry_memory_max | length > 0 %}
+MemoryMax={{ foundry_memory_max }}
+{% endif %}
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

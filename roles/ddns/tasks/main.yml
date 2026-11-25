@@ -1,0 +1,94 @@
+---
+# See defaults/main.yml for why this exists and why the record is named for a
+# site rather than a host.
+- name: "Keep this site's dynamic DNS records current"
+  when: "ddns_enabled | bool"
+  block:
+    - name: "Check there is a zone and at least one key to update"
+      ansible.builtin.assert:
+        fail_msg: >-
+          ddns_enabled is true but ddns_domain or ddns_names is unset, or a
+          name has no key. An update key is a credential: set it in host_vars
+          with "ansible-vault encrypt_string", never as a default here.
+        quiet: true
+        that:
+          - "ddns_domain | length > 0"
+          - "ddns_names | length > 0"
+          - "ddns_names | rejectattr('key', 'defined') | list | length == 0"
+          - "ddns_names | map(attribute='key') | select('equalto', '') | list | length == 0"
+
+    # dig comes from dnsutils and curl is relied on too; neither is guaranteed
+    # on a headless host.
+    - name: "Install what the update script calls"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        name:
+          - "curl"
+          - "dnsutils"
+        state: "present"
+
+    - name: "Install the update script"
+      ansible.builtin.template:
+        dest: "/usr/local/sbin/he-ddns-update"
+        group: "root"
+        mode: "0755"
+        owner: "root"
+        src: "he-ddns-update.j2"
+
+    - name: "Create the key directory"
+      ansible.builtin.file:
+        group: "root"
+        mode: "0700"
+        owner: "root"
+        path: "/etc/he-ddns"
+        state: "directory"
+
+    - name: "Write the update keys"
+      ansible.builtin.copy:
+        content: "{{ item.key }}"
+        dest: "/etc/he-ddns/{{ item.name }}.key"
+        group: "root"
+        mode: "0600"
+        owner: "root"
+      loop: "{{ ddns_names }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: "Install the units"
+      ansible.builtin.template:
+        dest: "/etc/systemd/system/{{ item }}"
+        group: "root"
+        mode: "0644"
+        owner: "root"
+        src: "{{ item }}.j2"
+      loop:
+        - "he-ddns.service"
+        - "he-ddns.timer"
+      notify: "Reload systemd for ddns"
+
+    - name: "Reload systemd so the units are visible before starting them"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      changed_when: false
+
+    - name: "Enable the timer"
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "he-ddns.timer"
+        state: "started"
+
+    # Run it once now rather than waiting out the first interval, and fail the
+    # play if the key is wrong: HE answers a bad key with "badauth", which the
+    # script turns into a non-zero exit. The alternative is a timer that has
+    # never worked and says so only in a log nobody reads.
+    - name: "Update the records now, to prove the keys work"
+      ansible.builtin.command:
+        argv: ["/usr/local/sbin/he-ddns-update"]
+      changed_when: true
+      register: "ddns_first_run"
+
+    - name: "Report what the update did"
+      ansible.builtin.debug:
+        msg: >-
+          {{ ddns_first_run.stdout | default('no change needed', true) }}

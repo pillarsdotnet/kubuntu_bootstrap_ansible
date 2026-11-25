@@ -14,6 +14,30 @@ fileserver_server_string: "%h fileserver"
 # else stops a backup run filling / and taking the rest of the host with it.
 fileserver_root: "/srv/backup"
 
+# The block device that holds the shares, mounted at fileserver_root before a
+# single share directory is created. Empty means the shares live on whatever
+# filesystem fileserver_root already sits on, which is homelab's case and the
+# reason the free-space alarm below exists at all.
+#
+# Name it the way fstab does - UUID=, LABEL=, or a /dev/disk/by-id path - and
+# never as a bare /dev/sdX. That name is handed out in enumeration order, so
+# an unrelated USB stick present at boot can take it and the shares then mount
+# whatever did turn up.
+#
+# This role MOUNTS a filesystem. It never creates one. A device carrying no
+# filesystem, or one of a different type, fails the check in tasks/main.yml
+# rather than being formatted - because the only thing worse than shares that
+# did not mount is empty shares where the backups used to be. Run mkfs by
+# hand, once, deliberately, and record what you did.
+fileserver_device: ""
+fileserver_fstype: "btrfs"
+# noatime: nothing here reads access times, and without it every read of a
+# backup writes metadata back to a USB disk.
+# nofail and the device timeout, because this disk is removable. Unplugged at
+# boot it must not drop the host to an emergency shell, and it must not hold
+# the boot up for 90 seconds either.
+fileserver_mount_options: "defaults,noatime,nofail,x-systemd.device-timeout=30s"
+
 # The accounts allowed in, as a list of {name, password}. Each becomes a
 # system user with no shell and no valid shadow password: the Samba password
 # lives in Samba's own database, so an account that owns every file written
@@ -122,3 +146,44 @@ fileserver_replicate_min_free_gb: 500
 fileserver_space_alarm: true
 fileserver_space_min_free_gb: 500
 fileserver_space_check_interval: "hourly"
+
+# Deduplicate the shares nightly with duperemove, on a filesystem that can
+# share extents between files. That means btrfs here; nothing else in this
+# estate does reflinks.
+#
+# This is the setting that lets one disk hold more than one disk's worth of
+# Windows backups. wbadmin rewrites its entire system image on every run, so
+# consecutive images are overwhelmingly the same blocks under a different
+# name - exactly the case hardlinking cannot catch, because no two files are
+# identical in full, and block-level dedup can. File History is the same
+# story at a smaller granularity.
+#
+# Off by default. It is pointless without reflinks, and it rewrites extent
+# metadata across every byte of the share, which is not something to do to a
+# host that did not ask for it.
+fileserver_dedupe_enabled: false
+# Nightly, at the quietest hour: Windows Backup on these machines runs in the
+# evening and File History hourly through the day. The randomised delay keeps
+# two hosts that both adopt this from starting in the same minute.
+fileserver_dedupe_interval: "03:00"
+fileserver_dedupe_randomized_delay: "30min"
+# What to deduplicate. Empty means fileserver_root, which is every share.
+fileserver_dedupe_paths: []
+# Where duperemove keeps its extent hashes between runs.
+#
+# Not a cache to be discarded casually: without it every run rehashes every
+# byte of every share, which on a USB disk is hours, and with it a run reads
+# only what changed since the last one. It lives outside fileserver_root
+# deliberately - inside, it would be part of the data being deduplicated, and
+# it would also appear in whichever share it landed in.
+fileserver_dedupe_hashfile: "/var/lib/duperemove/hashfile.db"
+# The block size duperemove hashes and compares at. Larger means a smaller
+# hashfile and a shorter run, at the cost of missing matches that do not
+# happen to align; 128K is duperemove's own default and the right starting
+# point for whole-disk images. Raise it if the hashfile outgrows its room.
+fileserver_dedupe_blocksize: "128K"
+# Give up rather than run into the working day. A nightly run that cannot
+# finish inside this is not keeping up, and a failed unit is how that gets
+# noticed - instead of two runs overlapping on one hashfile, which the lock
+# in the script refuses anyway.
+fileserver_dedupe_timeout: "6h"

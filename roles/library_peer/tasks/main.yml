@@ -1,0 +1,102 @@
+---
+# See defaults/main.yml. This is the receiving half of the library's hourly
+# disaster copy; it installs no library and serves nothing.
+- name: "Accept the Home Library disaster copy"
+  when: "library_peer_enabled | bool"
+  block:
+    - name: "Check there is a key to let the sender in with"
+      ansible.builtin.assert:
+        fail_msg: >-
+          library_peer_enabled is true but library_peer_authorized_keys is
+          empty. Without a key the sender's probe fails and the copy silently
+          never arrives, which is indistinguishable from "nothing has changed".
+        quiet: true
+        that:
+          - "library_peer_authorized_keys | length > 0"
+
+    # rrsync ships with rsync and is what the forced command runs. Named
+    # explicitly because a host without rsync accepts the connection and then
+    # fails every transfer.
+    - name: "Install rsync, which carries rrsync"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        name: "rsync"
+        state: "present"
+
+    - name: "Create the group the copy is owned by"
+      ansible.builtin.group:
+        name: "{{ library_peer_user }}"
+        state: "present"
+        system: true
+
+    - name: "Create the account the copy is owned by"
+      ansible.builtin.user:
+        comment: "Home Library disaster copy owner"
+        create_home: false
+        group: "{{ library_peer_user }}"
+        home: "{{ library_peer_data_dir }}"
+        name: "{{ library_peer_user }}"
+        shell: "/usr/sbin/nologin"
+        state: "present"
+        system: true
+
+    # 0700 on the standby directory, matching the sending host: the copy is
+    # somebody's reading history and there is no reason for it to be readable
+    # by every account here.
+    - name: "Create the directory the copy lands in"
+      ansible.builtin.file:
+        group: "{{ library_peer_user }}"
+        mode: "{{ item.mode }}"
+        owner: "{{ library_peer_user }}"
+        path: "{{ item.path }}"
+        state: "directory"
+      loop:
+        - path: "{{ library_peer_data_dir }}"
+          mode: "u=rwx,g=rx,o="
+        - path: "{{ library_peer_data_dir }}/standby"
+          mode: "u=rwx,g=,o="
+
+    - name: "Make sure root has somewhere to keep authorized keys"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=,o="
+        owner: "root"
+        path: "/root/.ssh"
+        state: "directory"
+
+    # blockinfile rather than a template: root's authorized_keys may carry
+    # entries this role knows nothing about, and replacing the file wholesale
+    # would remove somebody's way in.
+    - name: "Authorise the sender to deposit the copy"
+      ansible.builtin.blockinfile:
+        block: "{{ library_peer_authorized_keys | join('\n') }}"
+        create: true
+        group: "root"
+        marker: "# {mark} ANSIBLE MANAGED - home-library disaster copy"
+        mode: "u=rw,g=,o="
+        owner: "root"
+        path: "/root/.ssh/authorized_keys"
+
+    # The forced command has to exist, or the sender connects, the transfer
+    # fails, and the only evidence is in the sender's journal.
+    - name: "Confirm the forced commands exist on this host"
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: >-
+        {{ library_peer_authorized_keys
+           | map('regex_findall', 'command="([^" ]+)')
+           | flatten | unique | list }}
+      register: "library_peer_commands"
+
+    - name: "Report a forced command that is not installed"
+      ansible.builtin.assert:
+        fail_msg: >-
+          {{ item.item }} is named as a forced command in
+          library_peer_authorized_keys but does not exist here. The sender
+          will authenticate and then fail every transfer.
+        quiet: true
+        that:
+          - "item.stat.exists"
+      loop: "{{ library_peer_commands.results }}"
+      loop_control:
+        label: "{{ item.item }}"

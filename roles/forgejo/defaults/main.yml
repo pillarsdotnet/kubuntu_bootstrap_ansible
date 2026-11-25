@@ -22,6 +22,22 @@ forgejo_group: "forgejo"
 forgejo_home: "/var/lib/forgejo"
 forgejo_config_dir: "/etc/forgejo"
 
+# Where repositories actually live, which is NOT forgejo_home/repositories
+# however much the layout looks like it should be. Forgejo's default
+# REPO_ROOT_PATH is APP_DATA_PATH/forgejo-repositories, and APP_DATA_PATH
+# defaults in turn to WORK_PATH/data - so on homelab, whose app.ini sets
+# neither, the repositories are at /var/lib/forgejo/data/forgejo-repositories.
+#
+# This is not a detail. `forgejo dump` writes them into "repos/" in the
+# archive no matter where they came from, so restoring that directory to the
+# wrong place yields an instance that starts cleanly, serves the web
+# interface, authenticates users - and has lost every repository.
+#
+# Found on 2026-11-25 by listing the archive before trusting it: 7109 entries
+# under repos/, and zero under data/forgejo-repositories. Until then this role
+# restored into forgejo_home and had never been run.
+forgejo_repo_root: "{{ forgejo_home }}/data/forgejo-repositories"
+
 # Forgejo listens on loopback and nginx terminates TLS in front of it. Keep it
 # that way: the registry accepts uploads without a proxy in front only if you
 # are content to serve them in the clear.
@@ -54,6 +70,17 @@ forgejo_ssh_domain: ""
 # keys travel with the rows they decrypt.
 forgejo_restore_dump: ""
 
+# Set this when forgejo_restore_dump names a path on the TARGET host rather
+# than on the controller.
+#
+# ansible.builtin.copy streams a file through the controller, which for a dump
+# of any size is the slow way round: homelab's is 4.2 GiB, and sending it
+# home-to-controller-to-racknerd is two transfers over the same domestic
+# uplink instead of one. With this set, the dump is expected to be on the
+# target already - put it there with scp or rsync, host to host - and the role
+# unpacks it where it lies.
+forgejo_restore_dump_remote: false
+
 # The Forgejo version the dump came from. Set it alongside a restore and the
 # role refuses to proceed unless forgejo_version is the same or newer.
 #
@@ -79,9 +106,136 @@ forgejo_memory_max: ""
 # nginx vhost and certificate. The role will not request a certificate; point
 # it at one that exists, or leave TLS off and put your own proxy in front.
 forgejo_nginx_enabled: true
+
+# Addresses to bind for TLS, as a list. Empty means a wildcard "listen 443",
+# which is right on a host where nginx is the only thing wanting the port.
+#
+# It is NOT right on a host sharing port 443 with tailscaled, and the failure
+# is disproportionate: tailscaled holds <tailscale-ip>:443 for the ts.net
+# name, a wildcard listen then cannot bind it, and nginx does not merely drop
+# this virtual host - the reload aborts and every other site on the machine
+# goes with it. racknerd is that host, and its existing library vhost already
+# carries the same warning in a comment.
+#
+# Port 80 stays a wildcard deliberately, and that is not an oversight: an
+# address-specific "listen 96.44.137.73:80" would make this virtual host the
+# default server for every name on that address, which is a much broader
+# claim than serving one name.
+forgejo_nginx_listen_addresses: []
+
+# User agents refused outright, as case-insensitive nginx regexes. Empty
+# installs no map and adds no guard.
+#
+# This is not speculative hardening. On homelab, measured 2026-11-22,
+# meta-externalagent made 29439 of 185609 requests - 15.9% of all traffic to
+# the host - fetched /robots.txt exactly zero times while doing it, and sent
+# 8950 of those requests to paths the existing robots.txt already disallowed.
+# Asking politely had been tried and measured. It matters more on racknerd
+# than it did at home: four cores against homelab's twenty-four.
+#
+# The map is written with a role-scoped variable name and a role-scoped file,
+# rather than reusing a bare $blocked_ua, so that two roles can each refuse
+# their own agents without nginx failing on a duplicate map.
+forgejo_nginx_blocked_agents: []
+
+# Make this host resolve the forge's own name to itself, as an /etc/hosts
+# entry. Empty does nothing.
+#
+# The Actions runner is why this exists. It registers against
+# forgejo_root_url, which is a public name, and a host serving that name still
+# asks public DNS where it lives - so during a migration it is sent to
+# whatever the old record says, connects to a forge that has just been
+# stopped, and hangs. Measured on racknerd 2026-11-25: registration sat there
+# until it was killed at twenty minutes.
+#
+# It is also the right answer outside a migration. A machine serving a name
+# should not need the internet's opinion on where that name is, and this keeps
+# the runner working through a DNS outage.
+#
+# Give the address nginx actually listens on, NOT 127.0.0.1: with
+# forgejo_nginx_listen_addresses set, nothing is bound to loopback, so a
+# request to 127.0.0.1:443 reaches nothing at all.
+#
+# One interaction worth knowing: roles/resolver with resolver_manage_hosts
+# rewrites /etc/hosts wholesale and would drop this. The two are not enabled
+# together on any host today; if they ever are, put the entry in
+# resolver_hosts_extra instead and leave this empty.
+forgejo_local_hosts_address: ""
 forgejo_tls_cert: ""
 forgejo_tls_key: ""
 
 # Package uploads are large. nginx defaults to 1 MiB, which rejects most of
 # the registry with a 413 and no useful message.
 forgejo_client_max_body_size: "2048m"
+
+# ---------------------------------------------------------------------------
+# The Actions runner
+# ---------------------------------------------------------------------------
+#
+# Separate from the forge above, because the two are genuinely separable: a
+# host can serve the forge without building anything on it, and until
+# 2026-11-25 that is exactly what this role assumed for racknerd. See the
+# README section "Why the builds stay behind" for the argument, and read the
+# note on forgejo_runner_container_memory below for the part of it that turned
+# out to be wrong.
+forgejo_runner_enabled: false
+
+# The packaged runner rather than a pinned upstream binary. Unlike the forge
+# there is no schema here and no dump to restore, so there is nothing a
+# version change can corrupt - the worst an upgrade does is restart a daemon.
+forgejo_runner_binary: "/usr/bin/forgejo-runner"
+forgejo_runner_user: "forgejo-runner"
+forgejo_runner_home: "/var/lib/forgejo-runner"
+
+# How many jobs run at once.
+#
+# On a host where the forge is a guest, this is the setting that matters most,
+# and the honest answer for racknerd is 1. Raising it does not buy throughput
+# there: the binding constraint is the memory a single compile takes - 1-2 GiB
+# for one rustc or g++ translation unit - against 3.6 GiB available. Two
+# concurrent jobs do not finish in half the time, they swap, and the host also
+# serves this estate's authoritative DNS and its mail.
+forgejo_runner_capacity: 1
+
+# The runs-on labels this runner offers. Copied from homelab's registration so
+# that a workflow which ran there needs no edit to run here.
+forgejo_runner_labels:
+  - "ubuntu-latest:docker://ghcr.io/catthehacker/ubuntu:act-latest"
+  - "ubuntu-22.04:docker://ghcr.io/catthehacker/ubuntu:act-22.04"
+  - "ubuntu-24.04:docker://ghcr.io/catthehacker/ubuntu:act-24.04"
+  - "docker:docker://node:24-bookworm"
+
+# The instance the runner registers against. Empty follows forgejo_root_url,
+# which is right whenever the runner and the forge are the same host.
+forgejo_runner_instance_url: ""
+forgejo_runner_timeout: "3h"
+
+# systemd MemoryMax for the runner DAEMON. Empty leaves it unbounded.
+#
+# Worth being exact about what this does and does not bound, because the
+# README got it wrong and it is an easy mistake: with the docker backend, a
+# job's compiler does not run in this unit's cgroup. The runner asks dockerd
+# to create a container, and that container is a child of docker.service. So
+# MemoryMax here caps a Go daemon that idles at a few tens of MiB, and caps
+# nothing whatsoever about the build. It is cheap and correct to set, and it
+# is not the control that protects the host.
+forgejo_runner_memory_max: ""
+
+# THIS is the control that protects the host: --memory on each job container,
+# enforced by the kernel on the cgroup dockerd creates.
+#
+# Set on a host where the forge is a guest. A compile that exceeds it is
+# killed inside its own container and the job fails with an error the log
+# explains, which is the outcome worth having - the alternative is the kernel
+# choosing a victim across the whole machine, and on racknerd the victim may
+# be knot, which is the authoritative name service for this estate.
+#
+# Empty means no limit, which is right on a host built for building.
+forgejo_runner_container_memory: ""
+
+# Extra docker options for job containers, appended after --memory. The
+# --add-host entry is how a job container reaches the forge by its public name
+# when that name resolves to the host the container is running on.
+forgejo_runner_container_options: ""
+# Host paths a job container may bind-mount. Empty permits none.
+forgejo_runner_valid_volumes: []

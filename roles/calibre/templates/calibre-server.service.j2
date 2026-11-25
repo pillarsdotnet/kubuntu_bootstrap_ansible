@@ -1,0 +1,55 @@
+# Managed by kubuntu_bootstrap_ansible (roles/calibre).
+#
+# The calibre content server, holding the eBook library that replaced a dead
+# eBook reader. It offers a browser-based reader at the site root and an OPDS
+# catalogue at /opds for Android reader apps.
+#
+# Accounts live in the user database below and are managed with
+#   sudo -u {{ calibre_user }} calibre-server --manage-users --userdb {{ calibre_userdb }}
+[Unit]
+Description=calibre content server (eBook library)
+Documentation=https://manual.calibre-ebook.com/server.html
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ calibre_user }}
+Group={{ calibre_group }}
+Environment=CALIBRE_CONFIG_DIRECTORY={{ calibre_config_dir }}
+ExecStart=/usr/bin/calibre-server \
+    --listen-on {{ calibre_listen }} \
+    --port {{ calibre_port }} \
+{% if calibre_auth | bool %}
+    --enable-auth \
+    --auth-mode {{ calibre_auth_mode }} \
+    --userdb {{ calibre_userdb }} \
+{% endif %}
+{% for trusted_ip in calibre_trusted_ips %}
+    --trusted-ips {{ trusted_ip }} \
+{% endfor %}
+    --log {{ calibre_root }}/server.log \
+    --access-log {{ calibre_root }}/access.log \
+    --ban-after {{ calibre_ban_after }} \
+    --ban-for {{ calibre_ban_for }} \
+    {{ calibre_library }}
+Restart=on-failure
+RestartSec=5
+{% if calibre_memory_max | length > 0 %}
+MemoryMax={{ calibre_memory_max }}
+{% endif %}
+
+# The server needs to write only its own library, databases and logs.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ calibre_root }}
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# Managed by kubuntu_bootstrap_ansible (roles/forgejo).
+[Unit]
+Description=Forgejo Actions runner
+Documentation=https://forgejo.org/docs/latest/admin/actions/
+After=network-online.target docker.service{% if forgejo_enabled | bool %} forgejo.service{% endif %}
+
+Wants=network-online.target
+# Every label this estate offers is "docker://something", so a runner without
+# dockerd does not degrade - it accepts jobs and fails them at container
+# creation, which costs a queue slot and reports nothing useful.
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ forgejo_runner_user }}
+Group={{ forgejo_runner_user }}
+WorkingDirectory={{ forgejo_runner_home }}
+ExecStart={{ forgejo_runner_binary }} daemon -c {{ forgejo_runner_home }}/config.yml
+Restart=always
+RestartSec=5s
+{% if forgejo_runner_memory_max | length > 0 %}
+
+# Bounds the runner DAEMON only, and that is worth stating because it is easy
+# to assume otherwise: a job's compiler runs in a container created by
+# dockerd, in docker.service's cgroup, not in this one. So this caps a Go
+# daemon that idles at a few tens of MiB. The limit that bounds a build is
+# --memory on the container - see forgejo_runner_container_memory.
+MemoryMax={{ forgejo_runner_memory_max }}
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

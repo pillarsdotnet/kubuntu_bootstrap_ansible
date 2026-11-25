@@ -1,0 +1,11 @@
+# Managed by kubuntu_bootstrap_ansible (roles/forgejo). Do not edit by hand.
+#
+# Matching is on the agent string because the source addresses are not stable
+# - homelab saw meta-externalagent spread across 57.141.22.0/24. Add further
+# agents through forgejo_nginx_blocked_agents, not by editing this file.
+map $http_user_agent $forgejo_blocked_ua {
+    default 0;
+{% for blocked_agent in forgejo_nginx_blocked_agents %}
+    "~*{{ blocked_agent }}" 1;
+{% endfor %}
+}

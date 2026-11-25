@@ -1,0 +1,10 @@
+# Managed by kubuntu_bootstrap_ansible (roles/foundry). Do not edit by hand.
+#
+# Foundry's game connection is a WebSocket, and nginx will not forward an
+# upgrade without being told to. The variable is named for this role rather
+# than the bare $connection_upgrade so that a host which already defines one
+# of its own does not fail to load on a duplicate map.
+map $http_upgrade $foundry_connection_upgrade {
+    default upgrade;
+    ''      close;
+}

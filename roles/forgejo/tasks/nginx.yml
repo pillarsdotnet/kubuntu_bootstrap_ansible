@@ -5,6 +5,18 @@
     name: "nginx"
     state: "present"
 
+# Before the vhost, which references the variable this defines: nginx fails
+# to load a configuration using an undefined variable, so the order matters.
+- name: "Deploy the blocked user-agent map"
+  ansible.builtin.template:
+    dest: "/etc/nginx/conf.d/forgejo-blocked-agents.conf"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+    src: "nginx-blocked-agents.conf.j2"
+  when: "forgejo_nginx_blocked_agents | length > 0"
+  notify: "Reload nginx"
+
 - name: "Deploy the Forgejo vhost"
   ansible.builtin.template:
     dest: "/etc/nginx/sites-available/forgejo.conf"
@@ -12,9 +24,6 @@
     mode: "u=rw,g=r,o=r"
     owner: "root"
     src: "nginx-forgejo.conf.j2"
-    # Refuse to install a vhost nginx cannot parse, rather than reloading into
-    # a configuration that takes every other site on the host down with it.
-    validate: "nginx -t -c /etc/nginx/nginx.conf -g 'include %s;'"
   notify: "Reload nginx"
 
 - name: "Enable the Forgejo vhost"
@@ -23,6 +32,38 @@
     src: "/etc/nginx/sites-available/forgejo.conf"
     state: "link"
   notify: "Reload nginx"
+
+# The vhost is live to nginx the moment the symlink exists, but not
+# until a reload. So this is the window in which to test it: against
+# the real nginx.conf, which is the only context where the conf.d maps
+# it references and the certificate paths it names actually exist.
+#
+# There is no `validate:` on the template above on purpose. That option
+# tests a temporary copy in isolation, and the obvious incantation -
+# `nginx -t -g 'include %s;'` - injects the file into nginx's MAIN
+# context, where a `server` block is not allowed at all. It therefore
+# failed for every possible vhost, valid or not; measured on racknerd
+# 2026-11-25.
+- name: "Check the whole configuration with the vhost linked in"
+  block:
+    - name: "Test the nginx configuration"
+      ansible.builtin.command:
+        argv: ["nginx", "-t"]
+      changed_when: false
+  rescue:
+    - name: "Unlink the vhost so a later reload cannot fail on it"
+      ansible.builtin.file:
+        path: "/etc/nginx/sites-enabled/forgejo.conf"
+        state: "absent"
+
+    - name: "Report the configuration this vhost would have broken"
+      ansible.builtin.fail:
+        msg: >-
+          nginx rejected its configuration with the forgejo vhost
+          linked in, so the link has been removed and nothing was
+          reloaded. The most common causes are a certificate path that
+          does not exist yet and a listen address already held by
+          another process.
 
 - name: "Enable nginx"
   ansible.builtin.systemd_service:

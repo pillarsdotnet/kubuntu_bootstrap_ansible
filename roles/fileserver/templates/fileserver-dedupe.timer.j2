@@ -1,0 +1,16 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Nightly deduplication of the backup shares
+
+[Timer]
+OnCalendar={{ fileserver_dedupe_interval }}
+# So two hosts that both adopt this do not start in the same minute, and so a
+# run does not begin at exactly the moment a scheduled backup does.
+RandomizedDelaySec={{ fileserver_dedupe_randomized_delay }}
+# Catch up after a host that was off at 03:00. Unlike the space check there is
+# no OnBootSec here: hashing a terabyte is not what a host should do while it
+# is still bringing the rest of its services up.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

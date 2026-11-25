@@ -1,0 +1,132 @@
+---
+# See defaults/main.yml for what this serves and why it binds where it does.
+- name: "Serve a shared compiler-object cache"
+  when: "sccache_enabled | bool"
+  block:
+    - name: "Check the cache is not about to be offered to the whole internet"
+      ansible.builtin.assert:
+        fail_msg: >-
+          sccache_allow_cidrs is empty, or an address was bound with no allow
+          list. This endpoint accepts PUT without authentication, so an open
+          one is a cache anybody can poison - and a poisoned compiler cache is
+          a supply-chain problem, not a performance one.
+        quiet: true
+        that:
+          - "sccache_listen_addresses | length > 0"
+          - "sccache_allow_cidrs | length > 0"
+
+    # The core dav module is compiled into Ubuntu's nginx, but PROPFIND and
+    # OPTIONS come from a separate dynamic module that is not installed by
+    # default. Without it nginx refuses to load the vhost at all - "unknown
+    # directive dav_ext_methods" - rather than merely lacking a method.
+    - name: "Install nginx and the WebDAV extension module"
+      ansible.builtin.apt:
+        auto_install_module_deps: true
+        name:
+          - "nginx"
+          - "libnginx-mod-http-dav-ext"
+        state: "present"
+
+    # www-data owns it: nginx writes every object, and the store is useless if
+    # it can read the cache but not add to it.
+    - name: "Create the cache directories"
+      ansible.builtin.file:
+        group: "www-data"
+        mode: "0755"
+        owner: "www-data"
+        path: "{{ item }}"
+        state: "directory"
+      loop:
+        - "{{ sccache_root }}"
+        - "{{ sccache_root }}/.tmp"
+
+    - name: "Deploy the sccache vhost"
+      ansible.builtin.template:
+        dest: "/etc/nginx/sites-available/sccache.conf"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "nginx-sccache.conf.j2"
+      notify: "Reload nginx for sccache"
+
+    - name: "Enable the sccache vhost"
+      ansible.builtin.file:
+        dest: "/etc/nginx/sites-enabled/sccache.conf"
+        src: "/etc/nginx/sites-available/sccache.conf"
+        state: "link"
+      notify: "Reload nginx for sccache"
+
+    # Same pattern as roles/forgejo: test the real configuration with the
+    # vhost linked in, and unlink it if it does not hold, so a later reload
+    # for an unrelated reason cannot fail on it.
+    - name: "Check the whole configuration with the vhost linked in"
+      block:
+        - name: "Test the nginx configuration"
+          ansible.builtin.command:
+            argv: ["nginx", "-t"]
+          changed_when: false
+      rescue:
+        - name: "Unlink the vhost so a later reload cannot fail on it"
+          ansible.builtin.file:
+            path: "/etc/nginx/sites-enabled/sccache.conf"
+            state: "absent"
+
+        - name: "Report the configuration this vhost would have broken"
+          ansible.builtin.fail:
+            msg: >-
+              nginx rejected its configuration with the sccache vhost linked
+              in, so the link has been removed and nothing was reloaded. The
+              usual causes are a listen address that does not exist on this
+              host yet - the docker bridge is absent until docker starts - and
+              the dav_ext module being unavailable.
+
+    # Without this the cache is reachable from the host and from nowhere else,
+    # on any host whose ufw denies incoming by default: a container reaching a
+    # host-local address arrives on INPUT and is filtered like any other
+    # packet. The symptom is a cache that never registers a hit.
+    - name: "Let the container networks reach the cache"
+      community.general.ufw:
+        from_ip: "{{ item }}"
+        port: "{{ sccache_port | string }}"
+        proto: "tcp"
+        rule: "allow"
+      loop: "{{ sccache_ufw_from }}"
+
+    - name: "Enable nginx"
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "nginx"
+        state: "started"
+
+    - name: "Flush the reload before testing the endpoint"
+      ansible.builtin.meta: "flush_handlers"
+
+    # Everything above can succeed while the endpoint refuses the very method
+    # sccache depends on, so write an object, read it back, and delete it.
+    - name: "Prove the endpoint stores and returns an object"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          base="http://{{ sccache_probe_address }}:{{ sccache_port }}"
+          probe="$base/.ansible-probe"
+          put=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT --data-binary 'probe' "$probe")
+          get=$(curl -sS "$probe")
+          curl -sS -o /dev/null -X DELETE "$probe" || true
+          echo "put=$put get=$get"
+        executable: "/bin/bash"
+      changed_when: false
+      check_mode: false
+      register: "sccache_probe"
+
+    - name: "Confirm a PUT is accepted and read back"
+      ansible.builtin.assert:
+        fail_msg: >-
+          The cache did not store and return a test object
+          ({{ sccache_probe.stdout | default('no output') }}). A 403 means the
+          allow list does not cover the address the request came from; a 405
+          means dav_methods is not in effect for this location.
+        quiet: true
+        success_msg: "The cache accepted a PUT and returned it"
+        that:
+          - "'put=201' in sccache_probe.stdout or 'put=204' in sccache_probe.stdout"
+          - "'get=probe' in sccache_probe.stdout"

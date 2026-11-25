@@ -1,0 +1,158 @@
+---
+# The Forgejo Actions runner. See defaults/main.yml for the capacity argument
+# and for which of the two memory levers actually bounds a build.
+#
+# Registration is the one step that cannot be declarative: it exchanges a
+# one-time token for durable credentials, which the runner writes to .runner.
+# So the role generates a token from the forge on this host, registers if and
+# only if .runner is absent, and leaves it alone afterwards - re-registering
+# would appear in the forge as a second runner and orphan the first.
+
+- name: "Install the runner"
+  ansible.builtin.apt:
+    auto_install_module_deps: true
+    name: "forgejo-runner"
+    state: "present"
+
+# The docker backend is not optional given the labels this estate uses: every
+# one of them is "docker://something". A runner with no dockerd takes jobs and
+# fails them at container creation.
+- name: "Enable Docker, which the runner's labels all depend on"
+  ansible.builtin.systemd_service:
+    enabled: true
+    name: "docker.service"
+    state: "started"
+
+- name: "Create the runner's group"
+  ansible.builtin.group:
+    name: "{{ forgejo_runner_user }}"
+    state: "present"
+    system: true
+
+# In the docker group because that is how it reaches /var/run/docker.sock.
+# Worth saying plainly: this is root on the host by another name - anyone who
+# can talk to that socket can start a privileged container. It is the same
+# bargain homelab already made, and the reason the account has no shell.
+- name: "Create the runner's account"
+  ansible.builtin.user:
+    comment: "Forgejo Actions runner"
+    create_home: true
+    group: "{{ forgejo_runner_user }}"
+    groups: ["docker"]
+    home: "{{ forgejo_runner_home }}"
+    name: "{{ forgejo_runner_user }}"
+    shell: "/usr/sbin/nologin"
+    state: "present"
+    system: true
+
+- name: "Create the runner's working directory"
+  ansible.builtin.file:
+    group: "{{ forgejo_runner_user }}"
+    mode: "u=rwx,g=rx,o="
+    owner: "{{ forgejo_runner_user }}"
+    path: "{{ forgejo_runner_home }}"
+    state: "directory"
+
+- name: "Write the runner configuration"
+  ansible.builtin.template:
+    dest: "{{ forgejo_runner_home }}/config.yml"
+    group: "{{ forgejo_runner_user }}"
+    mode: "u=rw,g=r,o="
+    owner: "{{ forgejo_runner_user }}"
+    src: "forgejo-runner-config.yml.j2"
+  notify: "Restart the Forgejo runner"
+
+# Empty rather than absent: the runner reads env_file on every job and logs a
+# warning for a file that is not there. Managed here so job environment is
+# visible in the repository rather than inherited from whatever was once
+# typed into it - homelab injected two example variables into every job until
+# 2026-11-22 for exactly that reason.
+- name: "Create the job environment file"
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (roles/forgejo). Environment for every job.
+    dest: "{{ forgejo_runner_home }}/.env"
+    force: false
+    group: "{{ forgejo_runner_user }}"
+    mode: "u=rw,g=r,o="
+    owner: "{{ forgejo_runner_user }}"
+
+- name: "Look for credentials from an earlier registration"
+  ansible.builtin.stat:
+    path: "{{ forgejo_runner_home }}/.runner"
+  register: "forgejo_runner_registration"
+
+- name: "Register this runner with the forge"
+  when: "not forgejo_runner_registration.stat.exists"
+  block:
+    # Generated locally rather than pasted in from the web interface, which
+    # works because the forge is on this host: the command reads the database
+    # directly and does not need the daemon to be up.
+    - name: "Generate a registration token from the forge"
+      ansible.builtin.command:
+        argv:
+          - "{{ forgejo_binary }}"
+          - "--config"
+          - "{{ forgejo_config_dir }}/app.ini"
+          - "actions"
+          - "generate-runner-token"
+      become: true
+      become_user: "{{ forgejo_user }}"
+      changed_when: true
+      register: "forgejo_runner_token"
+      no_log: true
+
+    - name: "Register"
+      ansible.builtin.command:
+        argv:
+          - "{{ forgejo_runner_binary }}"
+          - "register"
+          - "--no-interactive"
+          - "--instance"
+          - "{{ forgejo_runner_instance_url | default(forgejo_root_url, true) }}"
+          - "--token"
+          - "{{ forgejo_runner_token.stdout | trim }}"
+          - "--name"
+          - "{{ ansible_facts['hostname'] }}"
+          - "--labels"
+          - "{{ forgejo_runner_labels | join(',') }}"
+          - "--config"
+          - "{{ forgejo_runner_home }}/config.yml"
+      args:
+        chdir: "{{ forgejo_runner_home }}"
+      become: true
+      become_user: "{{ forgejo_runner_user }}"
+      changed_when: true
+      no_log: true
+
+    - name: "Confirm the registration left usable credentials"
+      ansible.builtin.stat:
+        path: "{{ forgejo_runner_home }}/.runner"
+      register: "forgejo_runner_registered"
+
+    - name: "Fail on a registration that produced nothing"
+      ansible.builtin.assert:
+        fail_msg: >-
+          forgejo-runner register exited successfully but wrote no .runner in
+          {{ forgejo_runner_home }}. The usual cause is the instance URL not
+          resolving to this host yet, so the runner registered against
+          whatever is still answering that name.
+        quiet: true
+        that:
+          - "forgejo_runner_registered.stat.exists"
+
+- name: "Install the runner unit"
+  ansible.builtin.template:
+    dest: "/etc/systemd/system/forgejo-runner.service"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+    owner: "root"
+    src: "forgejo-runner.service.j2"
+  notify: "Restart the Forgejo runner"
+
+- name: "Enable the runner"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    enabled: true
+    name: "forgejo-runner"
+    state: "started"
