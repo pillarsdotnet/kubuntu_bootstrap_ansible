@@ -8,3 +8,11 @@
   ansible.builtin.systemd_service:
     name: "polkit"
     state: "restarted"
+
+# ipp-usb.service is static - udev starts it from 71-ipp-usb.rules when the
+# printer appears - so it is never enabled, only restarted when its
+# configuration changes.
+- name: "Restart ipp-usb"
+  ansible.builtin.systemd_service:
+    name: "ipp-usb"
+    state: "restarted"

@@ -7,3 +7,36 @@
 # The net backend blocks on TCP connect, so a stale address hangs every SANE
 # client on the machine rather than reporting an error.
 printing_sane_net_hosts: []
+
+# ipp-usb presents a USB printer that speaks IPP-over-USB as a local IPP
+# service, and - the part that is easy to miss - as a local eSCL scanner too.
+# That is how a scanner with no network connection of its own ends up
+# reachable as "net:<host>:airscan:...", which looks like a network device and
+# is not one.
+#
+# "loopback" keeps it on 127.0.0.1, which is right for a desktop. "all" puts
+# it on every interface so other machines can scan directly rather than
+# through saned on this host; see printing_sane_net_hosts above for the proxy
+# route it replaces.
+printing_ipp_usb_interface: "loopback"
+
+# The port range ipp-usb allocates from, one port per device, lowest free
+# first. These are the packaged values.
+#
+# The range must span at least two ports: ipp-usb requires http-min-port to be
+# strictly less than http-max-port and refuses to start otherwise. It is not a
+# way to pin the port, and it does not need to be - with one device attached
+# the lowest port in the range is always the one chosen.
+printing_ipp_usb_min_port: 65431
+printing_ipp_usb_max_port: 65432
+
+# Advertise over DNS-SD, so clients that browse find the printer and scanner.
+printing_ipp_usb_dns_sd: "enable"
+printing_ipp_usb_ipv6: "enable"
+
+# "debug" is what the package ships, and it is noisy - every scan and every
+# probe lands in /var/log/ipp-usb. Lowered to "info" or "error" it stays quiet;
+# left here as shipped so templating this file changes no behaviour on a host
+# that already had it.
+printing_ipp_usb_log_level: "debug"
+printing_ipp_usb_device_log: "all"

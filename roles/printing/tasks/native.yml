@@ -107,6 +107,54 @@
   tags:
     - "requires_systemd"
 
+- name: "Check the ipp-usb port range is one ipp-usb will accept"
+  ansible.builtin.assert:
+    that: "printing_ipp_usb_min_port | int < printing_ipp_usb_max_port | int"
+    fail_msg: >-
+      ipp-usb requires http-min-port to be strictly less than http-max-port
+      and exits at startup otherwise, with "http-min-port must be less that
+      http-max-port". Measured on homelab 2026-11-24: setting both to 65431
+      stopped the daemon and took eSCL off the network until it was reverted.
+      A one-port range is not how the port is pinned - ipp-usb already takes
+      the lowest free port in the range.
+    success_msg: "ipp-usb port range spans at least two ports"
+
+# A dpkg conffile, so dpkg will keep this version and leave a .dpkg-dist
+# alongside it on a future ipp-usb upgrade rather than overwriting it. Worth
+# knowing when a new release adds a setting: it will not appear here by itself.
+- name: "Deploy ipp-usb.conf"
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (roles/printing). Do not edit by hand.
+      # The packaged file is mostly commented examples; this is only what the
+      # fleet actually sets. See roles/printing/defaults/main.yml for why.
+
+      [network]
+        http-min-port = {{ printing_ipp_usb_min_port }}
+        http-max-port = {{ printing_ipp_usb_max_port }}
+        dns-sd = {{ printing_ipp_usb_dns_sd }}
+        interface = {{ printing_ipp_usb_interface }}
+        ipv6 = {{ printing_ipp_usb_ipv6 }}
+
+      [auth uid]
+        all = *
+
+      [logging]
+        device-log = {{ printing_ipp_usb_device_log }}
+        main-log = {{ printing_ipp_usb_log_level }}
+        console-log = {{ printing_ipp_usb_log_level }}
+        max-file-size = 256K
+        max-backup-files = 5
+        console-color = enable
+        get-all-printer-attrs = false
+    dest: "/etc/ipp-usb/ipp-usb.conf"
+    owner: "root"
+    group: "root"
+    mode: "u=rw,g=r,o=r"
+  notify: "Restart ipp-usb"
+  tags:
+    - "requires_systemd"
+
 - name: "Configure the SANE net backend for networked scanners"
   when: printing_sane_net_hosts | length > 0
   block:
