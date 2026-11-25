@@ -3,3 +3,24 @@
 # host_vars, which is correct for a value derived entirely from variables a
 # host is allowed to set rather than one a host should override itself.
 nut_target: "{{ nut_ups_name }}@{{ nut_listen_address }}:{{ nut_listen_port }}"
+
+# Where the low-power script lands. Not a default, because the script is
+# shipped by this role and a host pointing it elsewhere would only break the
+# NOTIFYCMD that refers to it.
+nut_power_mode_script: "/usr/local/sbin/nut-power-mode"
+
+# The events the low-power mode needs. upsmon runs NOTIFYCMD only for events
+# whose NOTIFYFLAG carries EXEC, so without these the script is installed and
+# never called.
+nut_power_mode_default_flags:
+  ONBATT: "SYSLOG+WALL+EXEC"
+  ONLINE: "SYSLOG+WALL+EXEC"
+
+# A host that sets nut_notify_cmd keeps it and owns the hook outright; the
+# low-power mode is just the command this role can supply when nothing else
+# claims it. Setting both is refused in tasks/main.yml rather than quietly
+# resolved here, because "my script stopped being called" is a bad way to
+# discover a precedence rule.
+nut_notify_command: >-
+  {{ nut_notify_cmd if (nut_notify_cmd | length > 0)
+     else (nut_power_mode_script if (nut_power_mode_enabled | bool) else '') }}

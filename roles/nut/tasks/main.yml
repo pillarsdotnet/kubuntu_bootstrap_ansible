@@ -38,6 +38,15 @@
           device identity; the password has no default on purpose.
         success_msg: "Credentials and device identity are set"
 
+    - name: "Check only one thing claims the notify hook"
+      ansible.builtin.assert:
+        that: "not (nut_power_mode_enabled | bool and nut_notify_cmd | length > 0)"
+        fail_msg: >-
+          Both nut_power_mode_enabled and nut_notify_cmd are set, and upsmon
+          has exactly one NOTIFYCMD. Either clear nut_notify_cmd, or point it
+          at a script of your own that calls {{ nut_power_mode_script }}.
+        success_msg: "One owner for the upsmon notify hook"
+
     - name: "Does ups.conf define a UPS yet?"
       ansible.builtin.command:
         cmd: "grep -cE '^[[]' /etc/nut/ups.conf"
@@ -107,6 +116,30 @@
         - "Re-enumerate the UPS drivers"
         - "Restart the UPS information server"
         - "Restart the UPS monitor"
+
+    # Installed before upsmon.conf, which names this path as its NOTIFYCMD.
+    # upsmon does not check that the command exists, so a missing script shows
+    # up only as an outage that changed nothing.
+    - name: "Install the low-power script"
+      ansible.builtin.copy:
+        src: "nut-power-mode"
+        dest: "{{ nut_power_mode_script }}"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      when: "nut_power_mode_enabled | bool"
+      notify: "Restart the UPS monitor"
+
+    # No handler: the script sources this file on each invocation, so a policy
+    # change takes effect at the next power event without restarting anything.
+    - name: "Write the low-power policy"
+      ansible.builtin.template:
+        src: "power-mode.conf.j2"
+        dest: "/etc/nut/power-mode.conf"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      when: "nut_power_mode_enabled | bool"
 
     - name: "Write the configuration"
       ansible.builtin.template:

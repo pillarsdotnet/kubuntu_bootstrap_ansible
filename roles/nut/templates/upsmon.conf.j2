@@ -24,10 +24,12 @@ RBWARNTIME {{ nut_rb_warn_time }}
 # And how long upsd may be unreachable before that is worth complaining about.
 NOCOMMWARNTIME {{ nut_no_comm_warn_time }}
 FINALDELAY {{ nut_final_delay }}
-{% if nut_notify_cmd | length > 0 %}
+{% if nut_notify_command | length > 0 %}
+{% set events = nut_notify_flags if (nut_notify_cmd | length > 0) else nut_power_mode_default_flags %}
 
-NOTIFYCMD "{{ nut_notify_cmd }}"
-{% for event, flags in nut_notify_flags | dictsort %}
+# EXEC is what actually calls NOTIFYCMD; an event without it is only logged.
+NOTIFYCMD "{{ nut_notify_command }}"
+{% for event, flags in events | dictsort %}
 NOTIFYFLAG {{ event }} {{ flags }}
 {% endfor %}
 {% endif %}

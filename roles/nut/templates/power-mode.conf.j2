@@ -1,0 +1,23 @@
+# Managed by Ansible (roles/nut). Do not edit by hand.
+# Sourced by {{ nut_power_mode_script }}, so every line must be a bare
+# KEY=value that bash can read. 0 or empty means "leave this lever alone".
+
+# Sustained and burst package power ceilings, in watts, while on battery.
+PL1_WATTS={{ nut_power_mode_rapl_pl1_watts }}
+PL2_WATTS={{ nut_power_mode_rapl_pl2_watts }}
+
+# Core frequency ceiling in MHz while on battery. This has to be BELOW the
+# base clock to do anything on a host that already runs with turbo disabled.
+MAX_FREQ_MHZ={{ nut_power_mode_max_freq_mhz }}
+
+# energy_performance_preference to set on every core, from
+# energy_performance_available_preferences.
+EPP="{{ nut_power_mode_epp }}"
+
+# Services stopped while on battery and started again afterwards. Only ones
+# found running are stopped, and only those are restarted.
+STOP_SERVICES="{{ nut_power_mode_stop_services | join(' ') }}"
+
+# Seconds to wait after line power returns before putting any of it back. 0
+# restores immediately.
+RESTORE_DELAY={{ nut_power_mode_restore_delay }}

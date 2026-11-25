@@ -72,6 +72,42 @@ nut_final_delay: 5
 # on-battery chirp - so it is not the same thing as muting one outage.
 nut_beeper_state: ""
 
+# Lower this host's power draw while it is on battery, through upsmon's
+# NOTIFYCMD. Off by default; it stops services and moves power and frequency
+# ceilings, which is not something to do to a host that did not ask.
+#
+# Every lever below is off until set, and each is saved before it is changed
+# and restored from the saved copy, so a value set by hand or by another role
+# comes back as it was.
+nut_power_mode_enabled: false
+
+# Sustained and burst package power ceilings in watts while on battery. These
+# are the levers that bound the worst case whatever happens to be running.
+nut_power_mode_rapl_pl1_watts: 0
+nut_power_mode_rapl_pl2_watts: 0
+
+# Core frequency ceiling in MHz while on battery. On a host already running
+# with turbo disabled this must be BELOW the base clock to do anything at all:
+# intel_pstate clamps the policy maximum to base, so a higher figure is
+# accepted and silently ignored. scaling_min_freq is the floor.
+nut_power_mode_max_freq_mhz: 0
+
+# energy_performance_preference for every core while on battery, from that
+# host's energy_performance_available_preferences. Empty leaves it alone.
+nut_power_mode_epp: ""
+
+# Services stopped for the duration. This is usually the largest single lever,
+# because discretionary work - CI builds above all - is what takes a host from
+# idle to several times idle. Only services found running are stopped, and
+# only those are started again.
+nut_power_mode_stop_services: []
+
+# Seconds after line power returns before anything is put back. Not zero by
+# default: mains returning is not the same as mains being back, and a supply
+# that blinks would otherwise stop and start those services on every blink. A
+# second outage inside the window cancels the pending restore.
+nut_power_mode_restore_delay: 60
+
 # The seam for acting on a power event, which is where an on-battery low-power
 # mode would hang. Empty writes no NOTIFYCMD at all and leaves the package
 # defaults (syslog and wall) in place. When set, nut_notify_flags maps an

@@ -410,6 +410,50 @@ failed the same read with `can't add hid device: -110`. The driver unit is
 built for that, with `Restart=always` and no start limit, so the role waits
 five minutes for a reading rather than trusting that the daemons came up.
 
+### Low-power mode while on battery
+
+The role can drop a host's draw for the duration of an outage, through
+`upsmon`'s `NOTIFYCMD`. Off by default; enable it per host:
+
+```yaml
+nut_power_mode_enabled: true
+nut_power_mode_rapl_pl1_watts: 45
+nut_power_mode_rapl_pl2_watts: 65
+nut_power_mode_max_freq_mhz: 1600
+nut_power_mode_epp: "power"
+nut_power_mode_stop_services: ["forgejo-runner.service"]
+nut_power_mode_restore_delay: 60
+```
+
+Every lever is off until set, and each is **saved before it is changed and
+restored from the saved copy**, so a value set by hand or by another role comes
+back as it was and this role needs to know nothing about who else owns the same
+knob. Only services found running are stopped, and only those are started
+again.
+
+Two things are worth knowing before picking numbers.
+
+**A frequency ceiling has to be below the base clock to do anything** on a host
+that already runs with turbo off. `intel_pstate` clamps the policy maximum to
+base when `no_turbo` is set, so a higher figure is accepted and silently
+ignored — `scaling_min_freq` is the real floor. On `homelab`, where
+`roles/diagnostics` disables turbo for the `Vmin Shift` mitigation, base is
+3200 MHz and the floor is 800 MHz.
+
+**Stopping discretionary work is usually the largest lever by far.** Measured
+idle draw on `homelab` is 72 W; a queue of `CI` builds takes it to several
+times that. Capping power and frequency bounds the worst case, but not starting
+the work at all is what actually buys runtime.
+
+The restore is deliberately deferred rather than immediate. Mains returning is
+not the same as mains being back, and without the delay a supply that blinks
+would stop and start those services on every blink. A second outage inside the
+window cancels the pending restore, so the host stays down low.
+
+`nut_notify_cmd` and `nut_power_mode_enabled` claim the same hook, and `upsmon`
+has exactly one `NOTIFYCMD`, so the role refuses both at once rather than
+picking a winner.
+
 Finally, note what the role does not buy on its own. Monitoring proves the
 battery side is healthy, but a host wired to the `SURGE PROTECTED` outlets
 loses power at the same instant `upsmon` sees the outage, so the shutdown it

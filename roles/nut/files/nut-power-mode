@@ -1,0 +1,192 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Cut this host's power draw while it runs on battery, and put it back after.
+#
+# upsmon calls this as its NOTIFYCMD: the message arrives as $1 and the event
+# name in NOTIFYTYPE. Only ONBATT and ONLINE do anything. Every other event is
+# ignored rather than treated as an error, so more of them can be given EXEC
+# later without this script failing on them.
+#
+# Two levers that look obvious are deliberately absent.
+#
+# no_turbo is not touched. This host already runs with turbo disabled for the
+# Vmin Shift mitigation, and intel_pstate then clamps the policy maximum to the
+# 3200 MHz base, so setting it here would be a measured no-op. The frequency
+# lever below therefore caps BELOW the base clock, which is the only headroom
+# left: scaling_min_freq is 800 MHz.
+#
+# The NVIDIA card is not touched either. Measured on homelab 2026-11-24:
+# removing the RTX 4070 Ti SUPER from the PCI bus entirely moved the wall
+# reading not at all, 72.0 W across fifteen samples before and fifteen after.
+# Its PM capability reports D3cold-, so the slot cannot be depowered from
+# Linux, and with no nvidia module loadable there is no driver to idle the core
+# either. Reclaiming that draw means taking the card out of the machine.
+#
+# Everything changed here is saved first and restored from the saved copy
+# rather than from configuration, so a value someone set by hand comes back as
+# they left it, and so this script needs to know nothing about the other roles
+# that own these same knobs.
+set -euo pipefail
+
+conf="/etc/nut/power-mode.conf"
+state="/run/nut-power-mode"
+rapl="/sys/class/powercap/intel-rapl:0"
+restore_unit="nut-power-restore"
+
+PL1_WATTS=0
+PL2_WATTS=0
+MAX_FREQ_MHZ=0
+EPP=""
+STOP_SERVICES=""
+RESTORE_DELAY=60
+# shellcheck source=/dev/null
+[ -r "$conf" ] && . "$conf"
+
+log() {
+  logger -t nut-power-mode -- "$*" || true
+  printf 'nut-power-mode: %s\n' "$*"
+}
+
+# Cancel a restore that a previous ONLINE scheduled but that has not fired.
+cancel_restore() {
+  systemctl stop "$restore_unit.timer" 2>/dev/null || true
+  systemctl reset-failed "$restore_unit.timer" "$restore_unit.service" 2>/dev/null || true
+}
+
+go_on_battery() {
+  cancel_restore
+  if [ -d "$state" ]; then
+    log "already in low-power mode; nothing to do"
+    return 0
+  fi
+  mkdir -p "$state"
+
+  if [ "$PL1_WATTS" -gt 0 ] && [ -w "$rapl/constraint_0_power_limit_uw" ]; then
+    cat "$rapl/constraint_0_power_limit_uw" > "$state/pl1"
+    printf '%s' "$((PL1_WATTS * 1000000))" > "$rapl/constraint_0_power_limit_uw"
+    log "PL1 $(($(cat "$state/pl1") / 1000000)) W -> $PL1_WATTS W"
+  fi
+  if [ "$PL2_WATTS" -gt 0 ] && [ -w "$rapl/constraint_1_power_limit_uw" ]; then
+    cat "$rapl/constraint_1_power_limit_uw" > "$state/pl2"
+    printf '%s' "$((PL2_WATTS * 1000000))" > "$rapl/constraint_1_power_limit_uw"
+    log "PL2 $(($(cat "$state/pl2") / 1000000)) W -> $PL2_WATTS W"
+  fi
+
+  # Only cores whose current ceiling is above the cap, so the E-cores and
+  # anything already lower are left alone and restore to what they had.
+  if [ "$MAX_FREQ_MHZ" -gt 0 ]; then
+    khz=$((MAX_FREQ_MHZ * 1000))
+    n=0
+    : > "$state/freq"
+    for d in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+      [ -w "$d/scaling_max_freq" ] || continue
+      now="$(cat "$d/scaling_max_freq")"
+      [ "$now" -gt "$khz" ] || continue
+      printf '%s %s\n' "$d/scaling_max_freq" "$now" >> "$state/freq"
+      printf '%s' "$khz" > "$d/scaling_max_freq" || true
+      n=$((n + 1))
+    done
+    log "capped $n core(s) at $MAX_FREQ_MHZ MHz"
+  fi
+
+  if [ -n "$EPP" ]; then
+    n=0
+    : > "$state/epp"
+    for d in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+      [ -w "$d/energy_performance_preference" ] || continue
+      printf '%s %s\n' "$d/energy_performance_preference" \
+        "$(cat "$d/energy_performance_preference")" >> "$state/epp"
+      printf '%s' "$EPP" > "$d/energy_performance_preference" || true
+      n=$((n + 1))
+    done
+    log "set energy_performance_preference=$EPP on $n core(s)"
+  fi
+
+  # Only services that were actually running are recorded, so restore starts
+  # exactly those and does not bring up something that was already stopped.
+  : > "$state/services"
+  for s in $STOP_SERVICES; do
+    if systemctl is-active --quiet "$s"; then
+      printf '%s\n' "$s" >> "$state/services"
+      systemctl stop "$s" || log "WARNING: could not stop $s"
+      log "stopped $s"
+    fi
+  done
+}
+
+go_online() {
+  if [ ! -d "$state" ]; then
+    log "not in low-power mode; nothing to restore"
+    return 0
+  fi
+
+  if [ -f "$state/pl1" ] && [ -w "$rapl/constraint_0_power_limit_uw" ]; then
+    cat "$state/pl1" > "$rapl/constraint_0_power_limit_uw"
+    log "PL1 restored to $(($(cat "$state/pl1") / 1000000)) W"
+  fi
+  if [ -f "$state/pl2" ] && [ -w "$rapl/constraint_1_power_limit_uw" ]; then
+    cat "$state/pl2" > "$rapl/constraint_1_power_limit_uw"
+    log "PL2 restored to $(($(cat "$state/pl2") / 1000000)) W"
+  fi
+  if [ -f "$state/freq" ]; then
+    while read -r path value; do
+      [ -n "$path" ] || continue
+      printf '%s' "$value" > "$path" || true
+    done < "$state/freq"
+    log "frequency ceilings restored"
+  fi
+  if [ -f "$state/epp" ]; then
+    while read -r path value; do
+      [ -n "$path" ] || continue
+      printf '%s' "$value" > "$path" || true
+    done < "$state/epp"
+    log "energy_performance_preference restored"
+  fi
+  if [ -f "$state/services" ]; then
+    while read -r s; do
+      [ -n "$s" ] || continue
+      systemctl start "$s" || log "WARNING: could not start $s"
+      log "started $s"
+    done < "$state/services"
+  fi
+
+  rm -rf "$state"
+}
+
+case "${1:-${NOTIFYTYPE:-}}" in
+  battery | ONBATT) NOTIFYTYPE="ONBATT" ;;
+  online | ONLINE) NOTIFYTYPE="ONLINE" ;;
+  restore) NOTIFYTYPE="RESTORE" ;;
+esac
+
+case "${NOTIFYTYPE:-}" in
+  ONBATT)
+    log "on battery: entering low-power mode"
+    go_on_battery
+    ;;
+  ONLINE)
+    # Deferred rather than immediate, because mains coming back is not the
+    # same as mains being back: the test outage on 2026-11-24 lasted 60
+    # seconds, and a supply that blinks repeatedly would otherwise stop and
+    # start the build runner on every blink. ONBATT cancels a pending
+    # restore, so a second failure inside the window keeps the host down low.
+    if [ "$RESTORE_DELAY" -gt 0 ]; then
+      cancel_restore
+      log "line power back: restoring in ${RESTORE_DELAY}s"
+      systemd-run --quiet --unit="$restore_unit" --on-active="${RESTORE_DELAY}s" \
+        --description="Restore normal power limits after a UPS outage" \
+        "$0" restore
+    else
+      log "line power back: restoring now"
+      go_online
+    fi
+    ;;
+  RESTORE)
+    log "restoring normal power limits"
+    go_online
+    ;;
+  *)
+    exit 0
+    ;;
+esac
