@@ -32,6 +32,10 @@ printing_ipp_usb_max_port: 65432
 
 # Advertise over DNS-SD, so clients that browse find the printer and scanner.
 printing_ipp_usb_dns_sd: "enable"
+# ipp-usb offers no interface list and no access control of its own - only
+# "all" or "loopback" above, and this. So on a host that shares eSCL, turning
+# IPv6 off is the only lever the daemon has for keeping the endpoint off a
+# globally routable address; anything finer needs a host firewall.
 printing_ipp_usb_ipv6: "enable"
 
 # "debug" is what the package ships, and it is noisy - every scan and every
