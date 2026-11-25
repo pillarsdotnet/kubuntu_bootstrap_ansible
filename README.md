@@ -338,6 +338,43 @@ after `net.conf` is correct is opening the remembered device, so fix the
 address there too, in both the `deviceName` and the `[Options For ...]` group
 headers that carry the per-device settings.
 
+### Sharing a `USB` scanner as `eSCL`
+
+`roles/printing` installs `ipp-usb`, which presents a printer that speaks
+`IPP`-over-`USB` as a local `IPP` service - and, the part that is easy to
+miss, as a local `eSCL` scanner too. That is how a scanner with no network
+connection of its own ends up reachable as a `net:` device, which looks like a
+network scanner and is not one.
+
+The role owns `/etc/ipp-usb/ipp-usb.conf`. `interface` defaults to `loopback`,
+which is right for a desktop. A host that should serve the scanner to other
+machines says so in `host_vars/<hostname>.yml`:
+
+```yaml
+printing_ipp_usb_interface: "all"
+printing_ipp_usb_ipv6: "disable"
+```
+
+Clients then reach it at `http://<host>:65431/eSCL` without the `saned` proxy
+above, and `avahi` advertises it as `_uscan._tcp` so an `eSCL` client finds it
+unaided. `Windows` does not use that path; it discovers over `WS-Discovery`.
+
+**The port range must span at least two ports.** `ipp-usb` requires
+`http-min-port` to be strictly less than `http-max-port` and exits at startup
+otherwise. A one-port range is not how the port is pinned and does not need to
+be - `ipp-usb` takes the lowest free port in the range, so with one device
+attached the minimum is always the one it uses. The role asserts this rather
+than letting the daemon fail.
+
+**`ipv6` is the only exposure control the daemon has.** There is no interface
+list and no access control beyond `all` or `loopback`, so on a host that
+shares the endpoint, turning `IPv6` off is what keeps it off a globally
+routable address. Anything narrower needs a host firewall.
+
+The file is a `dpkg` `conffile`, so a future upgrade keeps this version and
+leaves a `.dpkg-dist` beside it. A newly added setting will not appear here by
+itself.
+
 ## Monitoring a UPS
 
 `roles/nut` installs `Network UPS Tools` and points it at a `UPS` on the host's
@@ -459,6 +496,159 @@ battery side is healthy, but a host wired to the `SURGE PROTECTED` outlets
 loses power at the same instant `upsmon` sees the outage, so the shutdown it
 orders never runs. Only the `BATTERY/SURGE PROTECTED` outlets make the
 shutdown command meaningful.
+
+### Letting the `UPS` power down with the host
+
+Once a host has halted on low battery there is nothing left for the `UPS` to
+protect, and every further minute of inverting is charge it will want back on
+the way up. `nut_allow_killpower` lets it cut its own output and re-energise
+when mains returns.
+
+`NUT` ships this locked, and it is narrower than it sounds. `upsmon` writes
+`POWERDOWNFLAG` only on a low-battery shutdown, and the packaged
+`/usr/lib/systemd/system-shutdown/nutshutdown` hook runs `upsdrvctl shutdown`
+only when that flag is present - it logs `SKIP: Not in FSD (killpower) mode`
+otherwise. **An ordinary reboot does not cut the outlets.**
+
+Check one thing in firmware first: that the board powers on by itself once
+`AC` returns. The `UPS` re-energises after `ups.delay.start` seconds, and a
+board set to stay off leaves the outlets live and the machine dark.
+
+### Driver flags, and why a changed option may not take
+
+`nut_driver_flags` carries driver options that take no value. It is separate
+from `nut_driver_extra` because `NUT` parses a flag as its name alone, so
+`pollonly = true` is a setting called `pollonly` with a value, which the
+driver does not have.
+
+```yaml
+nut_driver_flags: ["pollonly"]
+nut_allow_killpower: true
+```
+
+The driver reads `ups.conf` only when it starts, and the enumerator rebuilds
+the unit's drop-ins when a section changes without recycling a running driver.
+A changed option was therefore written, reported as changed, and ignored. The
+role now restarts the driver instance on a configuration change **and**
+compares the configured intent against the live `driver.flag` value, recycling
+the driver when they disagree - so a host whose file was already correct still
+converges, rather than reporting success over a driver running yesterday's
+settings.
+
+Expect a restart to cost time on an unreliable unit. A `UPS` can refuse its
+`HID` report descriptor for many attempts running, which is why the driver
+unit is `Restart=always` with no start limit, and why the role waits minutes
+for a reading rather than trusting that the daemons came up.
+
+---
+
+## Serving `SMB` shares
+
+`roles/fileserver` serves shares to `Windows` machines on the `LAN`. Off
+everywhere by default: it opens a listening service and creates writable
+accounts, which is not something to do to a host that did not ask.
+
+```yaml
+fileserver_enabled: true
+fileserver_users:
+  - name: "backup"
+    password: !vault | # see "Secrets" above
+      ...
+fileserver_shares:
+  - name: "filehistory"
+    comment: "Windows File History"
+    users: ["backup"]
+    ro_users: ["laptop"]
+fileserver_hosts_allow: ["127.0.0.1", "10.0.0.0/24", "::1", "fe80::/10"]
+fileserver_interfaces: ["lo", "wlo1"]
+```
+
+Each account becomes a system user with no shell and a locked shadow
+password: its `Samba` password lives in `Samba`'s own database, so an account
+that owns every file written through its share still cannot log in to the
+host. `users` may read and write and owns the directory; `ro_users` may
+connect and read, enforced through `read list`. The directory stays
+group-writable because the owning account needs that, so `Samba` is the
+enforcement point for `ro_users` - sound for accounts with no shell, which
+these deliberately do not have.
+
+**`host_vars` is authoritative for passwords.** Change a vaulted value, re-run
+the role, and the account follows: the role tests the configured password the
+way a client does and resets it only when that fails. A password changed by
+hand with `smbpasswd` is reverted on the next run, so either tell the vault
+about it or drop that account from `fileserver_users` and manage it yourself.
+
+### Both host lists have to name both address families
+
+`hosts allow` and `hosts deny` written as `IPv4` expressions leave an `IPv6`
+hole, because `Samba` allows a client that matches **neither** list. Measured
+on a host with `10.0.0.0/24` and `0.0.0.0/0` in force: a connection to its
+globally routable `IPv6` address listed the shares. `fileserver_hosts_deny`
+therefore names `::/0` as well, and a host wanting `IPv6` clients on the `LAN`
+lists those prefixes in `fileserver_hosts_allow`.
+
+`fileserver_interfaces` adds `bind interfaces only`, which keeps the shares
+off container and `Kubernetes` bridges. Be precise about what it does not do:
+it restricts by **interface**, not by address scope, so a global `IPv6`
+address on a listed interface stays bound. The host lists gate that, and
+behind `NAT` the router gates it from outside. It also does not survive an
+interface rename - a host moved from wireless to wired stops serving until
+the list is updated.
+
+### One share per purpose, and per machine
+
+`wbadmin` overwrites its whole target on every run and keeps exactly one
+system image per location. Two machines aimed at one share overwrite each
+other, and `File History` versions in the same folder go with them. Give each
+machine its own pair.
+
+### What the role deliberately does not do
+
+**It cannot bound a share's size** on a host whose volume group has no free
+extents and whose root filesystem carries no quota feature: there is nowhere
+to put a volume of its own and no project quota to apply. The shares then
+share a filesystem with everything else, and `fileserver_space_alarm` is the
+compensating control. It **fails** its unit rather than only logging, so a
+missed warning stays in `systemctl --failed` instead of scrolling past - but
+it is a warning, not a limit, and the difference matters.
+
+**It does not make the host discoverable unaided.** `Windows` 10 and 11
+dropped the `NetBIOS` browsing `nmbd` offers and use `WS-Discovery` instead,
+and the `wsdd` package ships the binary with no unit at all, so the role
+provides one.
+
+### Consolidating one share into another
+
+`fileserver_replicate` copies one share into another as timestamped
+snapshots, sharing unchanged files with the previous one as hard links:
+
+```yaml
+fileserver_replicate:
+  - source: "laptop-windowsimage"
+    dest: "windowsimage"
+```
+
+Snapshots land as `<dest>/2026-11-24T233045Z/`. Three interlocks exist because
+the obvious version of each is wrong:
+
+- **A source still being written is skipped.** `Windows` streams a system
+  image for minutes at a time, and copying mid-write captures a torn file that
+  looks like a backup and is not one. Nothing is copied until the newest file
+  has been untouched for `fileserver_replicate_quiet_minutes`.
+- **A snapshot that would breach the free-space floor is refused**, not
+  started. A half-written snapshot is worse than no snapshot.
+- **Pruning only ever considers the script's own timestamps.** The destination
+  is a live share with its own client writing into it, and a prune that walked
+  everything would delete somebody's real backup.
+
+Keep `fileserver_replicate_keep` low. A system image is rewritten whole each
+run, so it shares no hard links with its predecessor and every snapshot costs
+full size.
+
+**This is consolidation, not redundancy.** Both copies land on the same
+filesystem. Where that filesystem is a linear span with no parity, one drive
+failure takes the original and every snapshot together. It guards against a
+machine losing its own backup, not against the host losing a disk.
 
 ## Environment Profiles: VDI and High-Risk Deployments
 
