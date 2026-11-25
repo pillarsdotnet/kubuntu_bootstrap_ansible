@@ -24,11 +24,20 @@ RBWARNTIME {{ nut_rb_warn_time }}
 # And how long upsd may be unreachable before that is worth complaining about.
 NOCOMMWARNTIME {{ nut_no_comm_warn_time }}
 FINALDELAY {{ nut_final_delay }}
+{% set power_events = nut_notify_flags if (nut_notify_cmd | length > 0)
+     else (nut_power_mode_default_flags if (nut_power_mode_enabled | bool) else {}) %}
+{% set events = nut_comm_notify_flags | combine(power_events) %}
 {% if nut_notify_command | length > 0 %}
-{% set events = nut_notify_flags if (nut_notify_cmd | length > 0) else nut_power_mode_default_flags %}
 
 # EXEC is what actually calls NOTIFYCMD; an event without it is only logged.
 NOTIFYCMD "{{ nut_notify_command }}"
+{% endif %}
+{% if events | length > 0 %}
+
+# The COMM* and NOCOMM events carry no EXEC on purpose: they report the link
+# to the UPS, not the state of the power, and the NOTIFYCMD above is written
+# for power events. They need no command to be useful - a wall message saying
+# the UPS has stopped answering is the whole point.
 {% for event, flags in events | dictsort %}
 NOTIFYFLAG {{ event }} {{ flags }}
 {% endfor %}

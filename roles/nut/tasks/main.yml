@@ -74,6 +74,31 @@
         update_cache: true
         cache_valid_time: 3600
 
+    # The packaged unit is Restart=always with StartLimitInterval=0 and
+    # RestartSec=15s. Fifteen seconds is a sensible default for a UPS that
+    # needs a moment to settle, and a poor one for the failure actually seen
+    # here, where the driver dies on a single bad report read and the next
+    # attempt would have worked. The directory is created first because
+    # ansible.builtin.template will not make a parent.
+    - name: "Make room for the driver restart policy"
+      ansible.builtin.file:
+        path: "/etc/systemd/system/nut-driver@.service.d"
+        state: "directory"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+
+    - name: "Shorten the wait before the driver is tried again"
+      ansible.builtin.template:
+        src: "nut-driver-retry.conf.j2"
+        dest: "/etc/systemd/system/nut-driver@.service.d/90-ansible-retry.conf"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      notify:
+        - "Reload the systemd unit files"
+        - "Restart the UPS driver"
+
     # The package ships /usr/lib/udev/rules.d/62-nut-usbups.rules, which puts
     # the UPS's device node in the "nut" group so the unprivileged driver can
     # open it. udev only applies it when the device appears, so a UPS that was
@@ -246,10 +271,10 @@
     # several attempts running: on homelab 2026-11-24 the Tripp Lite answered
     # 2 of 6 consecutive tries, and the kernel's own HID driver failed the
     # same read with "can't add hid device: -110". nut-driver@.service is
-    # built for that - Restart=always, RestartSec=15s, StartLimitInterval=0,
-    # "do not stop trying" - so the wait below is 20 tries 15 seconds apart,
-    # covering the same five minutes rather than giving up inside one of the
-    # driver's own retry gaps.
+    # built to keep trying: Restart=always, StartLimitInterval=0, and a
+    # RestartSec this role shortens to nut_driver_restart_sec seconds. So the
+    # wait below is 20 tries 15 seconds apart, covering five minutes rather
+    # than giving up inside one of the driver's own retry gaps.
     - name: "Ask upsd for the UPS status"
       ansible.builtin.command:
         cmd: "upsc {{ nut_target }} ups.status"

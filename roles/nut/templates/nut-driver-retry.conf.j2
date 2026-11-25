@@ -1,0 +1,15 @@
+# Managed by Ansible (roles/nut). Do not edit by hand.
+#
+# In the template-level drop-in directory, not the instance's own:
+# nut-driver-enumerator.sh runs "rm -rf" on
+# /etc/systemd/system/nut-driver@<name>.service.d whenever it retires a device
+# and would take this with it. Into the shared directory it only ever writes
+# files named nut-driver-enumerator-generated*, so this one survives.
+#
+# The packaged unit already retries forever. All this changes is how long the
+# host goes unmonitored between attempts.
+[Unit]
+StartLimitIntervalSec=0
+
+[Service]
+RestartSec={{ nut_driver_restart_sec }}s

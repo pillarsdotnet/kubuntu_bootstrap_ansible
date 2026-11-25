@@ -540,6 +540,66 @@ Expect a restart to cost time on an unreliable unit. A `UPS` can refuse its
 unit is `Restart=always` with no start limit, and why the role waits minutes
 for a reading rather than trusting that the daemons came up.
 
+### A dead driver is silent unless you ask for a warning
+
+`usbhid-ups` treats a single failed report read during initialisation as
+fatal. Measured on `homelab` on 2026-11-25:
+
+```text
+Using subdriver: TrippLite HID 0.85
+nut_libusb_get_report: Input/Output Error
+Can't initialize data from HID UPS
+```
+
+That matters more than it looks. The driver is a separate unit from `upsd` and
+`upsmon`, so it can die while both of those stay active. `upsd` then serves a
+`UPS` whose data never updates, `upsc` answers `Error: Data stale`, and the
+host carries on believing it is protected. On a unit whose `USB` link produces
+intermittent read errors, one of them landing inside the startup burst is
+enough, and which attempt it lands on is luck.
+
+Two defaults close that.
+
+The first makes the loss audible. `nut_comm_notify_flags` wires the three
+events that describe the link rather than the power:
+
+```yaml
+nut_comm_notify_flags:
+  COMMBAD: "SYSLOG+WALL"
+  COMMOK: "SYSLOG+WALL"
+  NOCOMM: "SYSLOG+WALL"
+```
+
+`COMMBAD` fires once when the link drops, `COMMOK` once when it returns, and
+`NOCOMM` repeats every `nut_no_comm_warn_time` seconds while it stays down.
+These are rendered whether or not a `NOTIFYCMD` is configured, because
+`SYSLOG` and `WALL` need no command - a wall message saying the `UPS` stopped
+answering is the entire point. They deliberately omit `EXEC`: the low-power
+script is written for power events and has no case for these.
+
+The second shortens the gap. The packaged unit retries forever already, but at
+`RestartSec=15s`, so a driver that needs several attempts leaves the host
+unmonitored for minutes. `nut_driver_restart_sec` lowers that, defaulting to
+five seconds:
+
+```yaml
+nut_driver_restart_sec: 5
+```
+
+Measured on the same host: the driver failed thirteen consecutive starts and
+came up 40 seconds in. The same sequence at the packaged interval would have
+been a little over three minutes.
+
+The drop-in goes in `/etc/systemd/system/nut-driver@.service.d/`, the
+template-level directory, not the instance's own. `nut-driver-enumerator.sh`
+runs `rm -rf` on `nut-driver@<name>.service.d` when it retires a device and
+would take anything of ours with it; into the shared directory it only ever
+writes files named `nut-driver-enumerator-generated*`.
+
+None of this repairs the link. If `COMMBAD` starts appearing in the journal,
+the cause is physical - on this host, a `USB` plug that had worked loose at
+the `UPS` end.
+
 ---
 
 ## Serving `SMB` shares

@@ -3,6 +3,13 @@
 # notified in, and that order matters: the enumerator turns ups.conf sections
 # into nut-driver@ instances, upsd reads the driver's socket, and upsmon talks
 # to upsd.
+
+# First, because a drop-in systemd has not re-read is a drop-in that does
+# nothing, and the driver restart below is what would otherwise pick it up.
+- name: "Reload the systemd unit files"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
 - name: "Re-enumerate the UPS drivers"
   ansible.builtin.systemd_service:
     name: "nut-driver-enumerator.service"

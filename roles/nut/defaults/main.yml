@@ -139,3 +139,31 @@ nut_power_mode_restore_delay: 60
 # is what actually calls NOTIFYCMD.
 nut_notify_cmd: ""
 nut_notify_flags: {}
+
+# Events that report the state of the link to the UPS rather than the state of
+# the power, wired to syslog and wall so losing sight of the UPS is as visible
+# as losing mains. Rendered whether or not a NOTIFYCMD is set, because SYSLOG
+# and WALL need no command, and deliberately without EXEC: the low-power
+# script is written for power events and has no case for these.
+#
+# Worth having because the alternative is silence. Measured on homelab
+# 2026-11-25: usbhid-ups treats a single failed report read during
+# initialisation as fatal - "nut_libusb_get_report: Input/Output Error" and
+# then "Can't initialize data from HID UPS" - so a UPS on a marginal USB link
+# leaves the driver dead while every daemon stays up and every check here
+# passes. upsd then serves a UPS that is permanently stale, and nothing says
+# so out loud. NOCOMM is what says so.
+#
+# NOCOMMWARNTIME sets how often NOCOMM repeats. COMMBAD fires once when the
+# link drops, COMMOK once when it returns.
+nut_comm_notify_flags:
+  COMMBAD: "SYSLOG+WALL"
+  COMMOK: "SYSLOG+WALL"
+  NOCOMM: "SYSLOG+WALL"
+
+# How long systemd waits before starting the driver again after it fails. The
+# package ships 15 seconds, which is a long time to be unmonitored when the
+# cause is one unlucky report read that the next attempt would get right.
+# Restart=always and StartLimitInterval=0 already come from the packaged unit;
+# this only shortens the gap between tries.
+nut_driver_restart_sec: 5
