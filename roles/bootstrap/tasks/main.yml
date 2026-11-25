@@ -97,6 +97,7 @@
 
 - name: "Add any addresses this host borrows from another"
   ansible.builtin.import_tasks: "ip_alias.yml"
+  tags: ["ip_alias"]
 
 - name: "Apply the WSL service policy"
   ansible.builtin.import_tasks: "wsl_services.yml"

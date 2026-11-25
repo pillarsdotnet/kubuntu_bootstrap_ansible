@@ -383,6 +383,53 @@ belong to, the directory, and one `authorized_keys` entry. Two details matter:
 The key is confined: `restrict,command="/usr/bin/rrsync -wo <dir>"`, so it may
 write one directory and do nothing else.
 
+### Three things the address takeover does not do by itself
+
+Done on 2026-11-25 with `homelab` powered off. Taking the address worked first
+time; three things that depend on it did not, and none of them reported an
+error that pointed at the cause.
+
+- **`Samba` binds its addresses at startup.** With `bind interfaces only = yes`
+  and `interfaces = lo wlp1s0`, `smbd` resolves those names to addresses when
+  it starts — so an address added to an interface afterwards is simply not
+  bound, and a client aimed at it gets `NT_STATUS_CONNECTION_REFUSED` while
+  `smbd` is plainly running and healthy. `systemctl restart smbd nmbd` after
+  the takeover.
+- **The sending side's `known_hosts` has the wrong key now**, because the name
+  reaches a different machine. The library sync passes
+  `StrictHostKeyChecking=accept-new`, which accepts an _unknown_ host and
+  refuses a _changed_ one, so `ssh` exits 255 and the script reports
+  `peer unreachable or refusing the sync key` — which reads like a network
+  problem and is not one. Clear the stale entry from **root's** `known_hosts`
+  on the sender, after checking the offered key is the host you expect:
+
+  ```bash
+  ssh-keygen -F "[homelab.bobbalisa.org]:65432" -f /root/.ssh/known_hosts -l
+  ssh-keyscan -p 65432 -t ed25519 homelab.bobbalisa.org | ssh-keygen -lf -
+  ssh-keygen -R "[homelab.bobbalisa.org]:65432" -f /root/.ssh/known_hosts
+  ```
+
+- **The library sync thinks the peer is already current.** It records a
+  fingerprint of the _source_ database in
+  `/var/lib/home-library/.sync/last-synced` and exits early when it matches, so
+  after the peer changes identity it copies nothing until the database next
+  changes — and the new peer sits empty meanwhile. Delete that file once:
+
+  ```bash
+  rm -f /var/lib/home-library/.sync/last-synced
+  systemctl start home-library-db-sync
+  ```
+
+Verified afterwards: `ssh` to the address reaches the new host, the shares
+answer at `\\10.0.0.2` with the same names and credentials so no `Windows`
+client needs touching, and the copy arrived as 970752 bytes plus 218 cover
+files, 952 books, `integrity_check` ok.
+
+One trap to avoid while checking: do not run `sqlite3` against the standby
+database to test it before the first copy arrives. `sqlite3` **creates** the
+file, so it leaves a zero-byte `library.db` that looks like a broken sync.
+Open it read-only instead: `sqlite3 'file:...library.db?mode=ro'`.
+
 ### Correctly staying with the hardware
 
 - **`NUT`** — the `UPS` is physically plugged into that host.
@@ -431,10 +478,26 @@ bootstrap_extra_addresses:
   - "10.0.0.2/24"
 ```
 
-Two things worth knowing before setting it:
+Apply it on its own, which is what the `ip_alias` tag is for:
+
+```bash
+ansible-playbook setup.yml -l acermagic --tags ip_alias
+```
+
+Not `--tags bootstrap`: the `bootstrap` role is included without a tag of that
+name, so such a run reports a handful of tasks and changes nothing, which reads
+as success. The tag was added on 2026-11-25 for exactly this reason - the only
+other way in is a full `bootstrap` run, whose `pre_tasks` prompt for an ssh
+port and a public key, which is no way to move an address while a host is down.
+
+Three things worth knowing before setting it:
 
 - **Only do it with `homelab` actually off.** The role checks, but the check is
   a courtesy, not a guarantee.
+- **Port 65432 is forwarded there too**, which is the useful part: it is how
+  the library's hourly disaster copy reaches the host holding the address, and
+  how the house is reachable by `ssh` from outside. `acermagic` listens on that
+  port already.
 - The router forwards 80 and 443 to 10.0.0.2, so `acermagic` inherits inbound
   web traffic for that address while it holds it. Harmless if it serves nothing
   there, but confirm rather than assume — and note that after this migration
