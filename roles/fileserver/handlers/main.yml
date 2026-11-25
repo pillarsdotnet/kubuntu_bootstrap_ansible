@@ -1,0 +1,19 @@
+---
+- name: "Restart the SMB server"
+  ansible.builtin.systemd_service:
+    name: "smbd.service"
+    state: "restarted"
+
+- name: "Restart the NetBIOS name server"
+  ansible.builtin.systemd_service:
+    name: "nmbd.service"
+    state: "restarted"
+
+- name: "Restart WS-Discovery"
+  ansible.builtin.systemd_service:
+    name: "wsdd.service"
+    state: "restarted"
+
+- name: "Reload systemd timers"
+  ansible.builtin.systemd_service:
+    daemon_reload: true

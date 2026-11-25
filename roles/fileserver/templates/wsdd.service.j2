@@ -1,0 +1,37 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+# Ubuntu's wsdd package ships the binary at /usr/bin/wsdd and no unit at all,
+# so this role provides one. Without it the shares work but never appear under
+# "Network" in Windows Explorer, because Windows 10 and 11 dropped the NetBIOS
+# browsing that nmbd offers and use WS-Discovery instead.
+[Unit]
+Description=Web Services Dynamic Discovery host daemon
+Documentation=man:wsdd(8)
+After=network-online.target nmbd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/wsdd --shortlog --workgroup {{ fileserver_workgroup }}{% if fileserver_wsdd_interface | length > 0 %} --interface {{ fileserver_wsdd_interface }}{% endif %}
+
+# It only needs to send and receive multicast; nothing it does wants
+# privilege, a writable filesystem or any of the host's devices.
+User=nobody
+Group=nogroup
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+# AF_NETLINK is not optional: wsdd opens a NETLINK_ROUTE socket to enumerate
+# interfaces and track address changes. Without it the daemon dies at startup
+# with "OSError: [Errno 97] Address family not supported by protocol", which
+# reads like a network problem rather than a sandbox one.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

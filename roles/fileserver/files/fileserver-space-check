@@ -1,0 +1,59 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Fail when the filesystem holding the shares is running out of room.
+#
+# This exists in place of a quota. Bounding a share's size properly needs
+# either a filesystem with the quota feature enabled or a volume of its own,
+# and on homelab neither is available: the volume group has no free extents
+# and the root filesystem was not made with quota support. So the shares sit
+# on the same filesystem as everything else, and the only protection is
+# noticing in time.
+#
+# Exiting non-zero is the point. A warning logged hourly scrolls past, but a
+# failed unit stays in "systemctl --failed" until somebody deals with it.
+set -euo pipefail
+
+path=""
+min_gb=0
+
+usage() {
+  echo "usage: $0 --path DIR --min-free-gb N" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --path)
+      [ $# -ge 2 ] || usage
+      path="$2"
+      shift 2
+      ;;
+    --min-free-gb)
+      [ $# -ge 2 ] || usage
+      min_gb="$2"
+      shift 2
+      ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$path" ] || usage
+[ -d "$path" ] || { echo "no such directory: $path" >&2; exit 1; }
+
+# Ask df for the filesystem actually holding the path, rather than assuming it
+# is a mount point of its own - on this host it is a directory on /.
+# No -P here: GNU df refuses "--portability cannot be used with --output".
+read -r fs free_kb < <(df --output=source,avail "$path" | tail -1)
+free_gb=$((free_kb / 1024 / 1024))
+
+if [ "$free_gb" -lt "$min_gb" ]; then
+  printf 'LOW DISK: %s (%s) has %d GiB free, below the %d GiB floor\n' \
+    "$path" "$fs" "$free_gb" "$min_gb" >&2
+  logger -t fileserver-space-check -p daemon.err -- \
+    "LOW DISK: $path ($fs) has ${free_gb} GiB free, below the ${min_gb} GiB floor" || true
+  wall "Backup share is low on disk: ${free_gb} GiB free on $path" 2>/dev/null || true
+  exit 1
+fi
+
+printf '%s (%s) has %d GiB free, floor is %d GiB\n' "$path" "$fs" "$free_gb" "$min_gb"

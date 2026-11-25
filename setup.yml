@@ -37,6 +37,12 @@
     # roles/forgejo/defaults/main.yml.
     - "forgejo"
     - "printing"
+    # Off everywhere but the host asked to serve shares; see
+    # roles/fileserver/defaults/main.yml. After "printing" because both
+    # install packages and neither depends on the other. Tagged so a share can
+    # be added without a full setup run.
+    - role: "fileserver"
+      tags: ["fileserver"]
     - "terminal"
   post_tasks:
     # Package installation can add or enable units after bootstrap has run.

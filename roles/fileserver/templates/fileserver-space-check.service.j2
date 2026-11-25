@@ -1,0 +1,10 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Warn when the backup share's filesystem is running low
+Documentation=man:df(1)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fileserver-space-check --path {{ fileserver_root }} --min-free-gb {{ fileserver_space_min_free_gb }}
+# No Restart=: the unit is meant to stay failed once it trips, so the warning
+# survives in "systemctl --failed" instead of scrolling past in a log.

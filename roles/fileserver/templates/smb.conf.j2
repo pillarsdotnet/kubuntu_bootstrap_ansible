@@ -1,0 +1,52 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+# The packaged smb.conf is 9 kB of commented examples; this is only what this
+# host actually uses. "testparm -s" is run against it before it is installed,
+# so a syntax error fails the play rather than the service.
+
+[global]
+    workgroup = {{ fileserver_workgroup }}
+    server string = {{ fileserver_server_string }}
+    server role = standalone server
+
+    # Authentication. "map to guest = never" matters: without it a bad
+    # username is silently downgraded to the guest account instead of being
+    # refused, which turns a typo into an anonymous session.
+    security = user
+    map to guest = never
+
+    server min protocol = {{ fileserver_min_protocol }}
+    smb encrypt = {{ fileserver_encrypt }}
+{% if fileserver_hosts_allow | length > 0 %}
+
+    # An allow list only means something with a deny to fall back to.
+    hosts allow = {{ fileserver_hosts_allow | join(' ') }}
+    hosts deny = 0.0.0.0/0
+{% endif %}
+
+    # This host is not a print server, and a file server that advertises
+    # printers invites Windows to probe for drivers it will not find.
+    load printers = no
+    printing = bsd
+    printcap name = /dev/null
+    disable spoolss = yes
+
+    logging = systemd
+    log level = 1
+{% for share in fileserver_shares %}
+
+[{{ share.name }}]
+{% if share.comment is defined %}
+    comment = {{ share.comment }}
+{% endif %}
+    path = {{ share.path | default(fileserver_root + '/' + share.name) }}
+    browseable = yes
+    read only = no
+    guest ok = no
+    valid users = {{ fileserver_user }}
+    # Group-writable so the directory stays usable if a second account is
+    # added later, and not world-readable: these are backups.
+    create mask = 0660
+    directory mask = 0770
+    force user = {{ fileserver_user }}
+    force group = {{ fileserver_group }}
+{% endfor %}

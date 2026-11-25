@@ -1,0 +1,61 @@
+---
+# Serve SMB shares to Windows machines on the LAN. Off everywhere by default:
+# this opens a listening service and creates a writable account, which is not
+# something to do to a host that did not ask.
+fileserver_enabled: false
+
+# Standalone server, not a domain member. Windows only needs the workgroup to
+# match for browsing; it has nothing to do with authentication.
+fileserver_workgroup: "WORKGROUP"
+fileserver_server_string: "%h fileserver"
+
+# Where share directories are created. On a host whose shares sit on the root
+# filesystem, see fileserver_space_* below - the alarm exists because nothing
+# else stops a backup run filling / and taking the rest of the host with it.
+fileserver_root: "/srv/backup"
+
+# The one account allowed in. A system user with no shell and no password of
+# its own: the Samba password is kept in Samba's database, not in /etc/shadow,
+# so this account cannot be used to log in to the host.
+fileserver_user: "backup"
+fileserver_group: "backup"
+# No default. A share reachable with a guessable password is worse than no
+# share. Set it in host_vars through "ansible-vault encrypt_string".
+fileserver_password: ""
+
+# Shares, as a list of {name, comment} and optionally {path}. The path
+# defaults to fileserver_root/<name>. One share per purpose rather than one
+# shared folder: Windows Backup overwrites its whole target directory on every
+# run, so it must not share a folder with anything that keeps history.
+fileserver_shares: []
+
+# Who may connect at all, as a second gate in front of the password. Empty
+# means no restriction, which on a host with a public interface would be a
+# mistake. "hosts deny" is set to everything when this is non-empty, because
+# an allow list that denies nothing allows everyone.
+fileserver_hosts_allow: []
+
+# SMB1 is off by default in modern Windows and should stay off here. SMB3 adds
+# encryption, which "desired" negotiates where the client supports it rather
+# than refusing clients that do not.
+fileserver_min_protocol: "SMB3"
+fileserver_encrypt: "desired"
+
+# Make the host appear in a Windows Explorer "Network" listing. Windows 10 and
+# 11 dropped the NetBIOS browsing that nmbd provides, and use WS-Discovery
+# instead, so without this the share works but has to be typed in by address.
+fileserver_wsdd: true
+# Which interface wsdd advertises on. Empty means every interface, which on a
+# host carrying docker and Kubernetes bridges means advertising into container
+# networks too - harmless, but noisy. Name the LAN interface to avoid it.
+fileserver_wsdd_interface: ""
+
+# Warn before the filesystem holding the shares fills. A timer rather than a
+# quota because this host's volume group has no free extents and its ext4 has
+# no quota feature enabled, so there is no way to bound the share's size
+# without restructuring the storage. The unit FAILS when space runs low, so a
+# missed warning still shows up in "systemctl --failed" rather than scrolling
+# past in a log.
+fileserver_space_alarm: true
+fileserver_space_min_free_gb: 500
+fileserver_space_check_interval: "hourly"

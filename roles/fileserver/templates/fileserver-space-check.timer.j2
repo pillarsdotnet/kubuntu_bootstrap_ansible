@@ -1,0 +1,13 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Periodic free-space check for the backup share
+
+[Timer]
+OnCalendar={{ fileserver_space_check_interval }}
+# Run once shortly after boot as well: a host that filled up while it was off
+# should say so before the next backup window rather than at the next hour.
+OnBootSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

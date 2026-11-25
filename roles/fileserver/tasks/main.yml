@@ -1,0 +1,209 @@
+---
+# Serve SMB shares to Windows machines on the LAN.
+#
+# One share per purpose, not one shared folder. Windows Backup (wbadmin)
+# overwrites its whole target directory on every run and keeps exactly one
+# system image per location, so pointing it at a folder that also holds File
+# History's versions would have it delete them. File History, in turn, manages
+# its own per-user versioning and wants a folder nothing else writes to.
+#
+# What this role does NOT do is bound the size of those shares, because on
+# this host it cannot: the volume group has no free extents, so there is no
+# room for a volume of their own, and the root filesystem was created without
+# the quota feature, so project quotas are unavailable too. The shares
+# therefore share a filesystem with / - including Forgejo and Kubernetes - and
+# the free-space timer at the end is the compensating control. It is a warning,
+# not a limit, and the difference matters.
+
+- name: "Serve SMB shares to the LAN"
+  when: "fileserver_enabled | bool"
+  block:
+    - name: "Check the share password and share list are set"
+      ansible.builtin.assert:
+        that:
+          - "fileserver_password | length > 0"
+          - "fileserver_shares | length > 0"
+        fail_msg: >-
+          fileserver_enabled is true but fileserver_password or
+          fileserver_shares is unset. A writable share reachable with a
+          guessable password is worse than no share, so the password has no
+          default; set it with "ansible-vault encrypt_string".
+        success_msg: "Share password and share list are set"
+
+    - name: "Install the server"
+      ansible.builtin.apt:
+        name: "{{ ['samba'] + (['wsdd'] if (fileserver_wsdd | bool) else []) }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: "Create the group that owns the shares"
+      ansible.builtin.group:
+        name: "{{ fileserver_group }}"
+        system: true
+
+    # No shell and no valid password hash: the Samba password lives in Samba's
+    # own database, so this account cannot be used to log in to the host even
+    # though it owns every file written through the share.
+    - name: "Create the account the shares run as"
+      ansible.builtin.user:
+        name: "{{ fileserver_user }}"
+        group: "{{ fileserver_group }}"
+        system: true
+        shell: "/usr/sbin/nologin"
+        home: "{{ fileserver_root }}"
+        create_home: false
+        password: "!"
+
+    - name: "Create the share directories"
+      ansible.builtin.file:
+        path: "{{ item.path | default(fileserver_root + '/' + item.name) }}"
+        state: "directory"
+        owner: "{{ fileserver_user }}"
+        group: "{{ fileserver_group }}"
+        # Not world-readable: these are backups of somebody's whole machine.
+        mode: "0770"
+      loop: "{{ fileserver_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: "Write the configuration"
+      ansible.builtin.template:
+        src: "smb.conf.j2"
+        dest: "/etc/samba/smb.conf"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+        # smbd refuses to start on a bad file, so validating here turns a
+        # broken share into a failed task rather than a dead service.
+        validate: "testparm -s %s"
+      notify:
+        - "Restart the SMB server"
+        - "Restart the NetBIOS name server"
+
+    # pdbedit is the idempotence check: smbpasswd would happily reset the
+    # password on every run, which is a change where nothing changed.
+    - name: "Is the share account known to Samba yet?"
+      ansible.builtin.command:
+        cmd: "pdbedit --list --user={{ fileserver_user }}"
+      register: "fileserver_pdbedit"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: "Set the Samba password for the share account"
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          printf '%s\n%s\n' "$FILESERVER_PASSWORD" "$FILESERVER_PASSWORD"
+          | smbpasswd -s -a {{ fileserver_user }}
+        executable: "/bin/bash"
+      environment:
+        FILESERVER_PASSWORD: "{{ fileserver_password }}"
+      when: "fileserver_pdbedit.rc != 0"
+      changed_when: true
+      # Passed through the environment rather than the command line so it is
+      # not visible in ps, and hidden here so it is not echoed into the log.
+      no_log: true
+
+    - name: "Enable the SMB and NetBIOS services"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - "smbd.service"
+        - "nmbd.service"
+
+    # Windows 10 and 11 no longer browse by NetBIOS, so without this the share
+    # works but never appears under "Network" and has to be typed in by
+    # address. nmbd is kept anyway: it costs nothing and older clients use it.
+    # The package ships /usr/bin/wsdd and no unit whatsoever - verified on
+    # homelab 2026-11-24, where "systemctl list-unit-files '*wsd*'" returned
+    # nothing and dpkg -L listed no .service file - so the unit comes from
+    # here rather than from the package.
+    - name: "Install the WS-Discovery unit the package does not ship"
+      ansible.builtin.template:
+        src: "wsdd.service.j2"
+        dest: "/etc/systemd/system/wsdd.service"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      when: "fileserver_wsdd | bool"
+      notify:
+        - "Reload systemd timers"
+        - "Restart WS-Discovery"
+
+    - name: "Reload systemd so the new unit is visible before it is started"
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: "fileserver_wsdd | bool"
+      changed_when: false
+
+    - name: "Enable WS-Discovery so Windows can find the host"
+      ansible.builtin.systemd_service:
+        name: "wsdd.service"
+        enabled: true
+        state: started
+      when: "fileserver_wsdd | bool"
+
+    - name: "Install the free-space check"
+      ansible.builtin.copy:
+        src: "fileserver-space-check"
+        dest: "/usr/local/sbin/fileserver-space-check"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      when: "fileserver_space_alarm | bool"
+
+    - name: "Install the free-space units"
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: "root"
+        group: "root"
+        mode: "0644"
+      loop:
+        - "fileserver-space-check.service"
+        - "fileserver-space-check.timer"
+      when: "fileserver_space_alarm | bool"
+      notify: "Reload systemd timers"
+
+    - name: "Flush the restarts before testing the shares"
+      ansible.builtin.meta: "flush_handlers"
+
+    - name: "Enable the free-space timer"
+      ansible.builtin.systemd_service:
+        name: "fileserver-space-check.timer"
+        enabled: true
+        state: started
+      when: "fileserver_space_alarm | bool"
+
+    # Everything above can succeed while the share is unreachable - a wrong
+    # password, a path smbd cannot enter, a global that testparm accepts and
+    # smbd ignores. So connect as the account and list the shares, which is
+    # the same operation Windows performs first.
+    - name: "List the shares as the share account would"
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          smbclient -L localhost -U {{ fileserver_user }}%"$FILESERVER_PASSWORD"
+          --option='client min protocol=SMB3' 2>&1
+      environment:
+        FILESERVER_PASSWORD: "{{ fileserver_password }}"
+      register: "fileserver_listing"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: "Confirm every share is reachable with the share account"
+      ansible.builtin.assert:
+        that: "item.name in (fileserver_listing.stdout | default(''))"
+        fail_msg: >-
+          Share "{{ item.name }}" did not appear when listing the server as
+          {{ fileserver_user }}. smbd is running but the share is not usable.
+        success_msg: "Share {{ item.name }} is reachable"
+      loop: "{{ fileserver_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
