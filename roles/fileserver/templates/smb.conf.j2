@@ -16,11 +16,20 @@
 
     server min protocol = {{ fileserver_min_protocol }}
     smb encrypt = {{ fileserver_encrypt }}
+{% if fileserver_interfaces | length > 0 %}
+
+    # Keep the shares off the docker and Kubernetes bridges. See the defaults:
+    # this binds by interface, so a global IPv6 address on a listed interface
+    # is still bound, and the host lists below are what gate it.
+    interfaces = {{ fileserver_interfaces | join(' ') }}
+    bind interfaces only = yes
+{% endif %}
 {% if fileserver_hosts_allow | length > 0 %}
 
-    # An allow list only means something with a deny to fall back to.
+    # An allow list only means something with a deny to fall back to, and the
+    # deny has to name both families - see fileserver_hosts_deny.
     hosts allow = {{ fileserver_hosts_allow | join(' ') }}
-    hosts deny = 0.0.0.0/0
+    hosts deny = {{ fileserver_hosts_deny | join(' ') }}
 {% endif %}
 
     # This host is not a print server, and a file server that advertises
@@ -42,11 +51,11 @@
     browseable = yes
     read only = no
     guest ok = no
-    valid users = {{ fileserver_user }}
-    # Group-writable so the directory stays usable if a second account is
-    # added later, and not world-readable: these are backups.
+    valid users = {{ share.users | join(' ') }}
+    # Group-writable so a share can be opened to a second account later, and
+    # not world-readable: these are backups. No "force user", so a file is
+    # owned by whoever wrote it rather than by one shared identity.
     create mask = 0660
     directory mask = 0770
-    force user = {{ fileserver_user }}
     force group = {{ fileserver_group }}
 {% endfor %}

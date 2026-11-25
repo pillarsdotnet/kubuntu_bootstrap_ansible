@@ -18,17 +18,24 @@
 - name: "Serve SMB shares to the LAN"
   when: "fileserver_enabled | bool"
   block:
-    - name: "Check the share password and share list are set"
+    - name: "Check every account has a password and every share has an account"
       ansible.builtin.assert:
         that:
-          - "fileserver_password | length > 0"
+          - "fileserver_users | length > 0"
           - "fileserver_shares | length > 0"
+          - "fileserver_users | rejectattr('password', 'defined') | list | length == 0"
+          - "fileserver_users | map(attribute='password') | select('equalto', '') | list | length == 0"
+          - >-
+            fileserver_shares | map(attribute='users') | flatten | unique
+            | difference(fileserver_users | map(attribute='name') | list)
+            | length == 0
         fail_msg: >-
-          fileserver_enabled is true but fileserver_password or
-          fileserver_shares is unset. A writable share reachable with a
-          guessable password is worse than no share, so the password has no
-          default; set it with "ansible-vault encrypt_string".
-        success_msg: "Share password and share list are set"
+          fileserver_enabled is true but fileserver_users or fileserver_shares
+          is unset, an account has no password, or a share names an account
+          that does not exist. A writable share reachable with a guessable
+          password is worse than no share, so passwords have no defaults; set
+          them with "ansible-vault encrypt_string".
+        success_msg: "Every account has a password and every share has an account"
 
     - name: "Install the server"
       ansible.builtin.apt:
@@ -45,21 +52,30 @@
     # No shell and no valid password hash: the Samba password lives in Samba's
     # own database, so this account cannot be used to log in to the host even
     # though it owns every file written through the share.
-    - name: "Create the account the shares run as"
+    - name: "Create the accounts the shares run as"
       ansible.builtin.user:
-        name: "{{ fileserver_user }}"
+        name: "{{ item.name }}"
         group: "{{ fileserver_group }}"
         system: true
         shell: "/usr/sbin/nologin"
         home: "{{ fileserver_root }}"
         create_home: false
+        # "!" is a locked hash, not a password: nothing can satisfy it, so the
+        # account has no route in except through Samba's own database.
         password: "!"
+      loop: "{{ fileserver_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
 
     - name: "Create the share directories"
       ansible.builtin.file:
         path: "{{ item.path | default(fileserver_root + '/' + item.name) }}"
         state: "directory"
-        owner: "{{ fileserver_user }}"
+        # The first account named by the share. With one account per machine
+        # that is simply its owner; a share opened to several relies on the
+        # group and the masks in smb.conf instead.
+        owner: "{{ item.users[0] }}"
         group: "{{ fileserver_group }}"
         # Not world-readable: these are backups of somebody's whole machine.
         mode: "0770"
@@ -81,29 +97,30 @@
         - "Restart the SMB server"
         - "Restart the NetBIOS name server"
 
-    # pdbedit is the idempotence check: smbpasswd would happily reset the
-    # password on every run, which is a change where nothing changed.
-    - name: "Is the share account known to Samba yet?"
-      ansible.builtin.command:
-        cmd: "pdbedit --list --user={{ fileserver_user }}"
-      register: "fileserver_pdbedit"
-      changed_when: false
-      failed_when: false
-      check_mode: false
-
-    - name: "Set the Samba password for the share account"
+    # pdbedit is the idempotence check, in the same step as the write so the
+    # two cannot disagree: smbpasswd would otherwise reset the password on
+    # every run, reporting a change where nothing changed. The password goes
+    # through the environment rather than the command line so it is not
+    # visible in ps, and the task is hidden so it is not echoed into the log.
+    - name: "Create the Samba accounts"
       ansible.builtin.shell:
-        cmd: >-
-          set -o pipefail;
-          printf '%s\n%s\n' "$FILESERVER_PASSWORD" "$FILESERVER_PASSWORD"
-          | smbpasswd -s -a {{ fileserver_user }}
+        cmd: |
+          set -o pipefail
+          if pdbedit --list --user={{ item.name }} >/dev/null 2>&1; then
+            echo "exists"
+          else
+            printf '%s\n%s\n' "$FILESERVER_PASSWORD" "$FILESERVER_PASSWORD" \
+              | smbpasswd -s -a {{ item.name }} >/dev/null
+            echo "created"
+          fi
         executable: "/bin/bash"
       environment:
-        FILESERVER_PASSWORD: "{{ fileserver_password }}"
-      when: "fileserver_pdbedit.rc != 0"
-      changed_when: true
-      # Passed through the environment rather than the command line so it is
-      # not visible in ps, and hidden here so it is not echoed into the log.
+        FILESERVER_PASSWORD: "{{ item.password }}"
+      loop: "{{ fileserver_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: "fileserver_smbpasswd"
+      changed_when: "'created' in (fileserver_smbpasswd.stdout | default(''))"
       no_log: true
 
     - name: "Enable the SMB and NetBIOS services"
@@ -179,31 +196,39 @@
         state: started
       when: "fileserver_space_alarm | bool"
 
-    # Everything above can succeed while the share is unreachable - a wrong
+    # Everything above can succeed while a share is unreachable - a wrong
     # password, a path smbd cannot enter, a global that testparm accepts and
-    # smbd ignores. So connect as the account and list the shares, which is
-    # the same operation Windows performs first.
-    - name: "List the shares as the share account would"
+    # smbd ignores, an account that exists in Unix but not in Samba. So
+    # connect as one of each share's own accounts and list the server, which
+    # is the same operation Windows performs first.
+    - name: "List the server as one of each share's own accounts"
       ansible.builtin.shell:
         cmd: >-
           set -o pipefail;
-          smbclient -L localhost -U {{ fileserver_user }}%"$FILESERVER_PASSWORD"
+          smbclient -L localhost -U {{ item.users[0] }}%"$FILESERVER_PASSWORD"
           --option='client min protocol=SMB3' 2>&1
       environment:
-        FILESERVER_PASSWORD: "{{ fileserver_password }}"
+        FILESERVER_PASSWORD: >-
+          {{ (fileserver_users | selectattr('name', 'equalto', item.users[0])
+              | first).password }}
+      loop: "{{ fileserver_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
       register: "fileserver_listing"
       changed_when: false
       failed_when: false
       check_mode: false
       no_log: true
 
-    - name: "Confirm every share is reachable with the share account"
+    - name: "Confirm every share is reachable with one of its own accounts"
       ansible.builtin.assert:
-        that: "item.name in (fileserver_listing.stdout | default(''))"
+        that: "item.item.name in (item.stdout | default(''))"
         fail_msg: >-
-          Share "{{ item.name }}" did not appear when listing the server as
-          {{ fileserver_user }}. smbd is running but the share is not usable.
-        success_msg: "Share {{ item.name }} is reachable"
-      loop: "{{ fileserver_shares }}"
+          Share "{{ item.item.name }}" did not appear when listing the server
+          as {{ item.item.users[0] }}. smbd is running but the share is not
+          usable by the account that owns it.
+        success_msg: >-
+          Share {{ item.item.name }} is reachable as {{ item.item.users[0] }}
+      loop: "{{ fileserver_listing.results }}"
       loop_control:
-        label: "{{ item.name }}"
+        label: "{{ item.item.name }}"

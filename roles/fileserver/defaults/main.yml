@@ -14,19 +14,27 @@ fileserver_server_string: "%h fileserver"
 # else stops a backup run filling / and taking the rest of the host with it.
 fileserver_root: "/srv/backup"
 
-# The one account allowed in. A system user with no shell and no password of
-# its own: the Samba password is kept in Samba's database, not in /etc/shadow,
-# so this account cannot be used to log in to the host.
-fileserver_user: "backup"
+# The accounts allowed in, as a list of {name, password}. Each becomes a
+# system user with no shell and no valid shadow password: the Samba password
+# lives in Samba's own database, so an account that owns every file written
+# through its share still cannot be used to log in to the host.
+#
+# The passwords have no defaults, because a share reachable with a guessable
+# one is worse than no share. Set them in host_vars with
+# "ansible-vault encrypt_string".
+fileserver_users: []
+# The group every share directory belongs to, so a share can be opened to a
+# second account later without rewriting ownership.
 fileserver_group: "backup"
-# No default. A share reachable with a guessable password is worse than no
-# share. Set it in host_vars through "ansible-vault encrypt_string".
-fileserver_password: ""
 
-# Shares, as a list of {name, comment} and optionally {path}. The path
-# defaults to fileserver_root/<name>. One share per purpose rather than one
-# shared folder: Windows Backup overwrites its whole target directory on every
-# run, so it must not share a folder with anything that keeps history.
+# Shares, as a list of {name, users} and optionally {comment, path}. The path
+# defaults to fileserver_root/<name>, and "users" names which of
+# fileserver_users may connect - it is also who the directory belongs to.
+#
+# One share per purpose AND per machine. Windows Backup overwrites its whole
+# target on every run and keeps exactly one system image per location, so two
+# machines pointed at one share overwrite each other, and a folder that also
+# holds File History's versions loses them.
 fileserver_shares: []
 
 # Who may connect at all, as a second gate in front of the password. Empty
@@ -34,6 +42,26 @@ fileserver_shares: []
 # mistake. "hosts deny" is set to everything when this is non-empty, because
 # an allow list that denies nothing allows everyone.
 fileserver_hosts_allow: []
+
+# What the allow list falls back to. Both families are named on purpose:
+# 0.0.0.0/0 does not match an IPv6 client, which would then match neither list
+# and be allowed, because Samba's default when neither matches is to allow.
+# Measured on homelab 2026-11-24 with an IPv4-only pair in place, a connection
+# to the host's global IPv6 address listed the shares.
+fileserver_hosts_deny:
+  - "0.0.0.0/0"
+  - "::/0"
+
+# Interfaces smbd binds, with "bind interfaces only". Empty leaves it binding
+# everything, which on a host carrying docker and Kubernetes bridges means
+# offering the shares on those too.
+#
+# This restricts by INTERFACE, not by address scope: every address on a listed
+# interface is bound, a globally routable IPv6 one included. It is not a
+# substitute for the host lists above, and it does not survive an interface
+# rename - a host moved from wireless to wired stops serving until this is
+# updated.
+fileserver_interfaces: []
 
 # SMB1 is off by default in modern Windows and should stay off here. SMB3 adds
 # encryption, which "desired" negotiates where the client supports it rather
