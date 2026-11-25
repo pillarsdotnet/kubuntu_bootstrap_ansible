@@ -1,0 +1,81 @@
+---
+# Off everywhere but the host with a UPS on its USB port. Installing the
+# daemons is harmless; handing upsmon the authority to shut the machine down
+# is not, so this is opt-in per host like the diagnostics and fancontrol
+# roles.
+nut_enabled: false
+
+# "standalone" is driver, upsd and upsmon on one host, serving nobody else.
+# A host that let other machines monitor its UPS would need "netserver" and
+# would also have to move nut_listen_address off loopback.
+nut_mode: "standalone"
+
+# The section name in ups.conf. It is also the name upsc, upscmd and upsmon
+# address the device by, so it ends up in every command typed by hand.
+nut_ups_name: "ups"
+nut_ups_description: ""
+
+# How the driver finds the device. Run "nut-scanner -U" on the host and copy
+# what it reports rather than inferring the driver from the model name: Tripp
+# Lite alone is split between usbhid-ups and tripplite_usb by protocol
+# generation, not by product line.
+nut_driver: "usbhid-ups"
+nut_port: "auto"
+nut_vendorid: ""
+nut_productid: ""
+# Vendor and product id are enough while a host has one UPS. The serial
+# distinguishes two of the same model, and pins the configuration to one
+# physical unit: it survives a battery replacement and changes if the whole
+# UPS is swapped.
+nut_serial: ""
+# Any further driver settings, written into the UPS section as given.
+nut_driver_extra: {}
+
+# upsd binds loopback only. The host holding the USB cable is the host that
+# monitors the UPS, and NUT's protocol sends the monitoring password in clear
+# text, so putting port 3493 on the LAN is a separate decision from this one.
+nut_listen_address: "127.0.0.1"
+nut_listen_port: 3493
+
+# No default: a shipped password on a daemon that can halt the machine is
+# worse than a play that refuses to run. Set it in host_vars, through
+# "ansible-vault encrypt_string".
+nut_upsmon_password: ""
+# Optional second account, for upscmd and upsrw. Empty means no admin account
+# at all, which is right for a host that only needs to read the UPS.
+nut_admin_password: ""
+# What that account may do. Deliberately not "ALL": the same mechanism that
+# silences the beeper can also cut the UPS output with load.off.
+nut_admin_instcmds:
+  - "beeper.disable"
+  - "beeper.enable"
+  - "beeper.mute"
+  - "beeper.toggle"
+  - "test.battery.start.quick"
+  - "test.battery.stop"
+
+# upsmon. The shutdown command is the whole reason to run it: a host on a UPS
+# that is about to run out has to come down before the power does.
+nut_shutdown_cmd: "/usr/sbin/shutdown -h +0"
+nut_min_supplies: 1
+nut_poll_freq: 5
+nut_poll_freq_alert: 5
+nut_dead_time: 15
+nut_rb_warn_time: 43200
+nut_no_comm_warn_time: 300
+nut_final_delay: 5
+
+# What the UPS's own beeper should be set to: "disabled", "enabled", or empty
+# to leave whatever the front panel last did alone. Setting it needs
+# nut_admin_password, because it goes through upscmd. "disabled" silences the
+# beeper completely - overload and critical-fault alarms as well as the
+# on-battery chirp - so it is not the same thing as muting one outage.
+nut_beeper_state: ""
+
+# The seam for acting on a power event, which is where an on-battery low-power
+# mode would hang. Empty writes no NOTIFYCMD at all and leaves the package
+# defaults (syslog and wall) in place. When set, nut_notify_flags maps an
+# upsmon event name to its flags, e.g. {"ONBATT": "SYSLOG+WALL+EXEC"} - EXEC
+# is what actually calls NOTIFYCMD.
+nut_notify_cmd: ""
+nut_notify_flags: {}

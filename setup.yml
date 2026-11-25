@@ -26,6 +26,12 @@
     # being able to redo after a kernel update without a full setup run.
     - role: "fancontrol"
       tags: ["fancontrol"]
+    # Off everywhere but the host with a UPS on its USB port; see
+    # roles/nut/defaults/main.yml. Tagged for the same reason as fancontrol:
+    # the UPS identity comes from "nut-scanner -U" on the host, so it is worth
+    # being able to re-apply the role on its own after swapping a unit.
+    - role: "nut"
+      tags: ["nut"]
     # Also off everywhere by default. Exists so the forge can be stood up on
     # a second host while its usual one is unavailable; see
     # roles/forgejo/defaults/main.yml.

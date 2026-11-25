@@ -1,0 +1,33 @@
+# Managed by Ansible (roles/nut). Do not edit by hand.
+# Holds the monitoring password, hence group-only read; see upsd.users.
+
+MONITOR {{ nut_ups_name }}@{{ nut_listen_address }}:{{ nut_listen_port }} {{ nut_min_supplies }} upsmon "{{ nut_upsmon_password }}" primary
+
+# How many of the supplies above have to be feeding this host for it to stay
+# up. One UPS, one supply.
+MINSUPPLIES {{ nut_min_supplies }}
+
+# Run when the UPS reports low battery. "+0" is deliberate: by this point the
+# UPS has already said it is nearly out, so there is nothing left to wait for.
+SHUTDOWNCMD "{{ nut_shutdown_cmd }}"
+
+# upsmon writes this file just before shutdown so the shutdown scripts can
+# tell a power-fail halt from an ordinary one. The path the Debian package
+# expects; changing it breaks that signal silently.
+POWERDOWNFLAG /etc/killpower
+
+POLLFREQ {{ nut_poll_freq }}
+POLLFREQALERT {{ nut_poll_freq_alert }}
+DEADTIME {{ nut_dead_time }}
+# How long a "replace battery" warning is repeated at, in seconds.
+RBWARNTIME {{ nut_rb_warn_time }}
+# And how long upsd may be unreachable before that is worth complaining about.
+NOCOMMWARNTIME {{ nut_no_comm_warn_time }}
+FINALDELAY {{ nut_final_delay }}
+{% if nut_notify_cmd | length > 0 %}
+
+NOTIFYCMD "{{ nut_notify_cmd }}"
+{% for event, flags in nut_notify_flags | dictsort %}
+NOTIFYFLAG {{ event }} {{ flags }}
+{% endfor %}
+{% endif %}

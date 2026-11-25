@@ -1,0 +1,19 @@
+---
+# Handlers run in the order they are defined here, not the order they were
+# notified in, and that order matters: the enumerator turns ups.conf sections
+# into nut-driver@ instances, upsd reads the driver's socket, and upsmon talks
+# to upsd.
+- name: "Re-enumerate the UPS drivers"
+  ansible.builtin.systemd_service:
+    name: "nut-driver-enumerator.service"
+    state: "restarted"
+
+- name: "Restart the UPS information server"
+  ansible.builtin.systemd_service:
+    name: "nut-server.service"
+    state: "restarted"
+
+- name: "Restart the UPS monitor"
+  ansible.builtin.systemd_service:
+    name: "nut-monitor.service"
+    state: "restarted"

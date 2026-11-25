@@ -1,0 +1,18 @@
+# Managed by Ansible (roles/nut). Do not edit by hand.
+# Readable by the "nut" group because upsd drops to the nut user before
+# reading it. It holds passwords in clear text, which is NUT's design: the
+# protocol sends them that way too.
+
+[upsmon]
+    password = "{{ nut_upsmon_password }}"
+    # "primary" means this is the host that shuts down last and tells the
+    # secondaries to go first. In standalone mode there are no secondaries,
+    # but upsmon still requires one side of the pair to be named.
+    upsmon primary
+{% if nut_admin_password | length > 0 %}
+
+[admin]
+    password = "{{ nut_admin_password }}"
+    actions = SET
+    instcmds = {{ nut_admin_instcmds | join(' ') }}
+{% endif %}

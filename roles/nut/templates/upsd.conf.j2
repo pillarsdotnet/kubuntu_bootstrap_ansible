@@ -1,0 +1,5 @@
+# Managed by Ansible (roles/nut). Do not edit by hand.
+# With no LISTEN directive at all upsd binds both 127.0.0.1 and ::1. One
+# explicit directive replaces that pair, so the address below is the only one
+# it answers on.
+LISTEN {{ nut_listen_address }} {{ nut_listen_port }}

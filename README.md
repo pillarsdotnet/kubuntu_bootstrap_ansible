@@ -338,6 +338,84 @@ after `net.conf` is correct is opening the remembered device, so fix the
 address there too, in both the `deviceName` and the `[Options For ...]` group
 headers that carry the per-device settings.
 
+## Monitoring a UPS
+
+`roles/nut` installs `Network UPS Tools` and points it at a `UPS` on the host's
+own `USB` port, so `upsmon` can halt the machine before the battery runs out.
+It is off everywhere by default. Enable it in `host_vars/<hostname>.yml`, which
+`git` excludes, using the identity that `nut-scanner` reports **on that host**:
+
+```bash
+sudo nut-scanner -U
+```
+
+```yaml
+nut_enabled: true
+nut_ups_name: "tripplite"
+nut_ups_description: "Tripp Lite SMART1500LCDT"
+nut_vendorid: "09AE"
+nut_productid: "3016"
+nut_serial: "..."
+nut_upsmon_password: !vault |
+  ...
+```
+
+Copy the driver name from `nut-scanner` rather than inferring it from the
+model: `Tripp Lite` alone is split between `usbhid-ups` and `tripplite_usb` by
+protocol generation, not by product line. The passwords have no defaults, and
+the role refuses to run without `nut_upsmon_password`; generate one with
+`ansible-vault encrypt_string` so the file `git` excludes is still encrypted
+at rest. Setting `nut_admin_password` as well adds an account for `upscmd`, which
+is what the role sends instant commands through.
+
+The beeper is the one piece of state here that does not live in a file. It is
+stored in the `UPS` itself, survives a restart of every daemon on the host, and
+anyone walking past can change it by holding the front-panel `MUTE` button. So
+the role reads `ups.beeper.status` and sends a command only when it disagrees
+with what the host asked for:
+
+```yaml
+nut_beeper_state: "disabled" # or "enabled", or "" to leave it alone
+nut_admin_password: !vault | # required for either non-empty value
+  ...
+```
+
+Setting it to `disabled` silences the beeper **completely** — the overload and
+critical-fault alarms as well as the on-battery chirp. It is not an
+on-battery-only mute, and on a host wired to the surge-only outlets it removes
+the only indication that the battery side has faulted.
+
+Two things about this role exist because of what it cost to get right the
+first time, and both are documented at length in
+`roles/nut/tasks/main.yml`.
+
+The first is that the packaging has a genuine ordering problem. `upsd` exits
+fatally when `ups.conf` defines no `UPS`, which is the state a fresh install is
+in, so the `postinst` leaves the package half-configured; and the configuration
+cannot be written first, because those files are `dpkg` `conffiles` whose
+owning group the `postinst` creates. The role masks the units across the install, which
+`deb-systemd-invoke` honours by skipping them, and unmasks them once there is
+something to read.
+
+The second is that a `UPS` already plugged in when the package is installed
+never gets the shipped `udev` rule applied, keeps a `root:root` device node,
+and makes the driver report `insufficient permissions on everything` — a
+permissions fault that reads like a missing device. The role re-triggers an
+`add` event on that one device.
+
+Expect the first connection to take a minute. A `UPS` can refuse to serve its
+`HID` report descriptor for several attempts running: on `homelab` the `Tripp
+Lite` answered 2 of 6 consecutive tries, and the kernel's own `HID` driver
+failed the same read with `can't add hid device: -110`. The driver unit is
+built for that, with `Restart=always` and no start limit, so the role waits
+five minutes for a reading rather than trusting that the daemons came up.
+
+Finally, note what the role does not buy on its own. Monitoring proves the
+battery side is healthy, but a host wired to the `SURGE PROTECTED` outlets
+loses power at the same instant `upsmon` sees the outage, so the shutdown it
+orders never runs. Only the `BATTERY/SURGE PROTECTED` outlets make the
+shutdown command meaningful.
+
 ## Environment Profiles: VDI and High-Risk Deployments
 
 For VDI environments or systems where supply chain security is a concern, you can filter

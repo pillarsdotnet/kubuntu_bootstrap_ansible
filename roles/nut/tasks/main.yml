@@ -1,0 +1,280 @@
+---
+# Read the UPS on this host's USB port, and halt the host before the battery
+# runs out.
+#
+# Two properties of the Debian packaging shape this file.
+#
+# The first is that the package cannot be installed before the configuration
+# is written, and the configuration cannot be written before the package. The
+# nut-server postinst starts upsd, and upsd exits fatally when ups.conf
+# defines no UPS - exactly the state a fresh install is in. Measured on
+# homelab 2026-11-24: "Fatal error: at least one UPS must be defined in
+# ups.conf", five restarts, then "start request repeated too quickly", leaving
+# the package half-configured. Writing the files first is no answer either:
+# they are dpkg conffiles, and the "nut" group that owns them does not exist
+# until the postinst creates it. So the units are masked across the install -
+# deb-systemd-invoke skips a masked unit and reports success - and unmasked
+# once there is something for them to read. The masking is conditional on
+# ups.conf having no UPS section yet, so a host already running NUT is not
+# touched and the role stays idempotent.
+#
+# The second is that upsd and upsmon both read their configuration as the
+# unprivileged "nut" user, which is why these files are root:nut 0640 rather
+# than root:root 0600. They carry the monitoring password in clear text.
+
+- name: "Read the UPS on this host"
+  when: "nut_enabled | bool"
+  block:
+    - name: "Check the credentials and the device identity are set"
+      ansible.builtin.assert:
+        that:
+          - "nut_upsmon_password | length > 0"
+          - "nut_vendorid | length > 0"
+          - "nut_productid | length > 0"
+          - "nut_beeper_state in ['', 'enabled', 'disabled']"
+        fail_msg: >-
+          nut_enabled is true but nut_upsmon_password, nut_vendorid or
+          nut_productid is unset. Run "nut-scanner -U" on the host for the
+          device identity; the password has no default on purpose.
+        success_msg: "Credentials and device identity are set"
+
+    - name: "Does ups.conf define a UPS yet?"
+      ansible.builtin.command:
+        cmd: "grep -cE '^[[]' /etc/nut/ups.conf"
+      register: "nut_ups_defined"
+      changed_when: false
+      # Covers both a missing file and a file with no section in it.
+      failed_when: false
+      check_mode: false
+
+    - name: "Keep the daemons masked until they have something to read"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        masked: true
+      loop:
+        - "nut-server.service"
+        - "nut-monitor.service"
+      when: "nut_ups_defined.rc != 0"
+
+    - name: "Install the UPS tools"
+      ansible.builtin.apt:
+        name:
+          - "nut-server"
+          - "nut-client"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # The package ships /usr/lib/udev/rules.d/62-nut-usbups.rules, which puts
+    # the UPS's device node in the "nut" group so the unprivileged driver can
+    # open it. udev only applies it when the device appears, so a UPS that was
+    # already plugged in when the package was installed keeps root:root and
+    # the driver fails with "insufficient permissions on everything" - which
+    # is a live permissions bug reported as a missing device. Measured on
+    # homelab 2026-11-24: /dev/bus/usb/001/003 was root:root 0664 and
+    # usbhid-ups said "No matching HID UPS found" with the UPS plainly in
+    # lsusb. Re-triggering an add event on that one device applies the rule.
+    - name: "Apply the udev rule to a UPS that was plugged in before NUT"
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          dev=""
+          for d in /sys/bus/usb/devices/*; do
+            [ -r "$d/idVendor" ] && [ -r "$d/idProduct" ] || continue
+            [ "$(cat "$d/idVendor")" = "{{ nut_vendorid | lower }}" ] || continue
+            [ "$(cat "$d/idProduct")" = "{{ nut_productid | lower }}" ] || continue
+            dev="$d"
+            break
+          done
+          if [ -z "$dev" ]; then
+            echo "no {{ nut_vendorid }}:{{ nut_productid }} device on the USB bus" >&2
+            exit 1
+          fi
+          node=$(printf '/dev/bus/usb/%03d/%03d' \
+            "$(cat "$dev/busnum")" "$(cat "$dev/devnum")")
+          if [ "$(stat -c %G "$node")" = "nut" ]; then
+            echo "unchanged"
+            exit 0
+          fi
+          udevadm control --reload-rules
+          udevadm trigger --action=add "$dev"
+          udevadm settle
+          echo "retriggered"
+        executable: "/bin/bash"
+      register: "nut_udev"
+      changed_when: "'retriggered' in nut_udev.stdout"
+      notify:
+        - "Re-enumerate the UPS drivers"
+        - "Restart the UPS information server"
+        - "Restart the UPS monitor"
+
+    - name: "Write the configuration"
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/nut/{{ item }}"
+        owner: "root"
+        group: "nut"
+        mode: "0640"
+      loop:
+        - "nut.conf"
+        - "ups.conf"
+        - "upsd.conf"
+        - "upsd.users"
+        - "upsmon.conf"
+      notify:
+        - "Re-enumerate the UPS drivers"
+        - "Restart the UPS information server"
+        - "Restart the UPS monitor"
+
+    - name: "Let the daemons start now that they can"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        masked: false
+      loop:
+        - "nut-server.service"
+        - "nut-monitor.service"
+      when: "nut_ups_defined.rc != 0"
+
+    # The enumerator is Type=oneshot, so it is enabled but never "started":
+    # asking for that would re-run it on every play. It runs at boot and from
+    # the handler above, which is the only time it has work to do.
+    - name: "Enable driver enumeration at boot"
+      ansible.builtin.systemd_service:
+        name: "nut-driver-enumerator.service"
+        enabled: true
+
+    # The enumerator names each instance after its ups.conf section, so this
+    # unit name is deterministic. Starting it explicitly is not redundant:
+    # nut-driver.target pulls the instances in at boot, but starting an
+    # already-active target does not revive an instance that was stopped since,
+    # and the enumerator handler above fires only when ups.conf changes. A host
+    # in that state passes every other check and monitors nothing - which is
+    # how this role first went green against a driver that was inactive (dead).
+    #
+    # The start is allowed to fail. nut-driver@.service is Restart=always with
+    # StartLimitInterval=0 exactly because a UPS may not answer on the first
+    # attempt, so systemd keeps trying in the background while "systemctl
+    # start" reports the first failure. The upsc read below is the real gate.
+    - name: "Enable and start the driver for this UPS"
+      ansible.builtin.systemd_service:
+        name: "nut-driver@{{ nut_ups_name }}.service"
+        enabled: true
+        state: started
+      register: "nut_driver_start"
+      failed_when: false
+
+    - name: "Enable and start the server and the monitor"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - "nut-server.service"
+        - "nut-monitor.service"
+
+    # Everything above can succeed while the driver fails to claim the device,
+    # which leaves upsd serving a UPS that is permanently "stale" - and a
+    # monitored UPS that reports nothing is the same as no UPS at all, only
+    # with the paperwork of being protected. So read a value back.
+    - name: "Flush the restarts before reading the UPS"
+      ansible.builtin.meta: "flush_handlers"
+
+    # Patience here is not politeness, it is the measured behaviour of the
+    # hardware. A UPS can refuse to serve its HID report descriptor for
+    # several attempts running: on homelab 2026-11-24 the Tripp Lite answered
+    # 2 of 6 consecutive tries, and the kernel's own HID driver failed the
+    # same read with "can't add hid device: -110". nut-driver@.service is
+    # built for that - Restart=always, RestartSec=15s, StartLimitInterval=0,
+    # "do not stop trying" - so the wait below is 20 tries 15 seconds apart,
+    # covering the same five minutes rather than giving up inside one of the
+    # driver's own retry gaps.
+    - name: "Ask upsd for the UPS status"
+      ansible.builtin.command:
+        cmd: "upsc {{ nut_target }} ups.status"
+      register: "nut_status"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      retries: 20
+      delay: 15
+      until: "nut_status.rc == 0"
+
+    - name: "Confirm the driver is actually talking to the UPS"
+      ansible.builtin.assert:
+        that:
+          - "nut_status.rc == 0"
+          - "'OL' in nut_status.stdout or 'OB' in nut_status.stdout"
+        fail_msg: >-
+          upsc could not read ups.status from {{ nut_target }}
+          ({{ nut_status.stderr | default(nut_status.stdout) | trim }}).
+          The daemons are running but nothing is monitoring the UPS. If the
+          driver log shows the report descriptor read timing out, suspect the
+          cable or the port before the configuration: a low-speed HID device
+          on a flaky link fails exactly this way.
+        success_msg: "UPS reports {{ nut_status.stdout | trim }}"
+
+    # Keep the beeper where this host wants it. Unlike everything above, this
+    # is not file state: the setting lives in the UPS, survives a restart of
+    # every daemon here, and can be changed behind Ansible's back by anyone
+    # walking past and holding the front-panel MUTE button. So read what the
+    # UPS reports and send a command only when the two disagree.
+    #
+    # Measured on homelab 2026-11-24, which is why the read-back retries
+    # rather than trusting the command: a front-panel press appears in
+    # ups.beeper.status immediately, but beeper.disable took one 3-second
+    # retry to read back.
+    #
+    # Worth knowing before setting this to "disabled": it silences the whole
+    # beeper, the overload and critical-fault alarms included - the same
+    # beeper that reported an F01 on this unit. It is not an on-battery mute.
+    - name: "Hold the beeper at the state this host asked for"
+      when: "nut_beeper_state | length > 0"
+      block:
+        - name: "Check there is an admin account to send the command through"
+          ansible.builtin.assert:
+            that: "nut_admin_password | length > 0"
+            fail_msg: >-
+              nut_beeper_state is "{{ nut_beeper_state }}" but
+              nut_admin_password is unset. The beeper is changed with upscmd,
+              which needs that account; nut_admin_instcmds already allows the
+              beeper commands.
+            success_msg: "An admin account is available for upscmd"
+
+        - name: "Read the beeper state the UPS reports"
+          ansible.builtin.command:
+            cmd: "upsc {{ nut_target }} ups.beeper.status"
+          register: "nut_beeper_now"
+          changed_when: false
+          check_mode: false
+
+        - name: "Set the beeper state"
+          ansible.builtin.command:
+            cmd: >-
+              upscmd -u admin -p {{ nut_admin_password }} {{ nut_target }}
+              beeper.{{ 'disable' if nut_beeper_state == 'disabled' else 'enable' }}
+          when: "nut_beeper_now.stdout | trim != nut_beeper_state"
+          changed_when: true
+          # The password would otherwise be echoed in the task's arguments.
+          no_log: true
+
+        - name: "Read the beeper state back"
+          ansible.builtin.command:
+            cmd: "upsc {{ nut_target }} ups.beeper.status"
+          register: "nut_beeper_after"
+          changed_when: false
+          check_mode: false
+          # Unconditional, not gated on having just sent a command: holding
+          # a state means checking it every run, and when it is already right
+          # the first poll succeeds and this costs one command.
+          retries: 10
+          delay: 3
+          until: "nut_beeper_after.stdout | trim == nut_beeper_state"
+
+        - name: "Confirm the UPS took the beeper command"
+          ansible.builtin.assert:
+            that: "nut_beeper_after.stdout | trim == nut_beeper_state"
+            fail_msg: >-
+              The UPS still reports ups.beeper.status
+              "{{ nut_beeper_after.stdout | trim }}" after being told
+              "{{ nut_beeper_state }}". The command was accepted and ignored.
+            success_msg: "Beeper is {{ nut_beeper_state }}"

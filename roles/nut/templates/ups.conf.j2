@@ -1,0 +1,23 @@
+# Managed by Ansible (roles/nut). Do not edit by hand.
+# Restarting nut-driver-enumerator.service turns each section below into a
+# nut-driver@<section> unit instance; a section added here is not running
+# until that happens.
+
+[{{ nut_ups_name }}]
+    driver = "{{ nut_driver }}"
+    port = "{{ nut_port }}"
+{% if nut_ups_description | length > 0 %}
+    desc = "{{ nut_ups_description }}"
+{% endif %}
+{% if nut_vendorid | length > 0 %}
+    vendorid = "{{ nut_vendorid }}"
+{% endif %}
+{% if nut_productid | length > 0 %}
+    productid = "{{ nut_productid }}"
+{% endif %}
+{% if nut_serial | length > 0 %}
+    serial = "{{ nut_serial }}"
+{% endif %}
+{% for key, value in nut_driver_extra | dictsort %}
+    {{ key }} = "{{ value }}"
+{% endfor %}

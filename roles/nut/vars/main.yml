@@ -1,0 +1,5 @@
+---
+# Composed once here rather than spelled out at every use. vars/ outranks
+# host_vars, which is correct for a value derived entirely from variables a
+# host is allowed to set rather than one a host should override itself.
+nut_target: "{{ nut_ups_name }}@{{ nut_listen_address }}:{{ nut_listen_port }}"
