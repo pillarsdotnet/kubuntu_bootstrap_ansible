@@ -10,5 +10,5 @@ __pycache__
 
 # Host-specific, created locally per README (not shared across the fleet)
 /inventory.yml
-/host_vars/
+/host_vars
 /local_sources.yml
