@@ -1,0 +1,17 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Snapshot the backup shares read-only
+Documentation=man:btrfs-subvolume(8)
+After=smbd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/fileserver-snapshot
+# Root because only root may create or delete a subvolume.
+User=root
+# Taking the snapshot is a metadata operation and effectively instant. The
+# time goes on the quiet-period check, which walks the share to find its
+# newest ctime, and on pruning. Nothing here is interactive.
+TimeoutStartSec=1h
+Nice=10
+IOSchedulingClass=idle

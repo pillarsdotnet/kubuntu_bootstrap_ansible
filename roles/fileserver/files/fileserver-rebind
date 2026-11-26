@@ -1,0 +1,276 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Restart smbd when an interface carries an address it is not listening on.
+#
+# smbd enumerates interfaces once, at startup, and with "bind interfaces only"
+# there is no wildcard socket behind that. An address configured a moment
+# later is therefore never served, and nothing anywhere says so.
+#
+# Measured on acermagic 2026-11-25. The DHCPv6 lease landed at 16:36:49.80 and
+# smbd started at 16:36:50.85 - one second later, with the new addresses still
+# tentative under duplicate address detection, which bind() refuses. The host
+# then served SMB over IPv4 only for the next six hours. It went unnoticed
+# because nothing breaks: the one Windows client tried IPv6, got no answer and
+# fell back to IPv4, paying a connection delay instead of failing. A restart
+# of smbd bound all ten addresses immediately, and the same client promptly
+# opened a second session over IPv6, which is how long it had been asking.
+#
+# A RESTART IS THE ONLY THING THAT REBINDS, which is the unwelcome part.
+# Measured the same day against Samba 4.24.7, with an unused address added to
+# the interface and smbd running:
+#
+#   systemctl reload smbd        logs "Reloaded", binds nothing
+#   smbcontrol smbd reload-config  same, and there is no rebind message to ask
+#                                  for - smbcontrol's list has reload-config,
+#                                  reload-printers and reload-certs, nothing
+#                                  that reopens a socket
+#
+# So smbd re-reads smb.conf on SIGHUP without reconsidering what it listens
+# on, and the sockets are fixed for the life of the process.
+#
+# WHICH IS WHY THIS DEFERS WHILE ANYBODY IS CONNECTED. A restart drops every
+# session, and the bug it would be fixing costs a client a connection delay
+# and nothing else - a client that cannot reach an IPv6 address falls back to
+# IPv4 and backs up anyway. Trading an interrupted wbadmin image for a faster
+# handshake would be a bad bargain, so when sessions are open this logs and
+# leaves; the next network event tries again. The case this exists for is the
+# seconds after a boot, when there is nothing connected to disturb.
+#
+# The other way out would be to give up "bind interfaces only" and let smbd
+# hold a wildcard socket, which has no race to lose and needs no hook at all,
+# leaving the host lists as the only gate. That is a wider change than this
+# one, and it is a deliberate choice rather than an oversight: see the
+# fileserver_interfaces note in the role's defaults.
+set -euo pipefail
+
+interfaces=()
+port=445
+unit="smbd.service"
+settle=5
+when_busy="defer"
+boot_grace=120
+dry_run=false
+
+usage() {
+  echo "usage: $0 --interfaces \"IFACE [IFACE...]\" [--port N] [--unit NAME]" >&2
+  echo "       [--settle SECONDS] [--when-busy defer|restart]" >&2
+  echo "       [--boot-grace SECONDS] [--dry-run]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --interfaces)
+      [ $# -ge 2 ] || usage
+      # Whitespace-separated, and repeatable. Unquoted on purpose: the word
+      # splitting is what turns one option into a list.
+      # shellcheck disable=SC2206
+      interfaces+=($2)
+      shift 2
+      ;;
+    --port)
+      [ $# -ge 2 ] || usage
+      port="$2"
+      shift 2
+      ;;
+    --unit)
+      [ $# -ge 2 ] || usage
+      unit="$2"
+      shift 2
+      ;;
+    --settle)
+      [ $# -ge 2 ] || usage
+      settle="$2"
+      shift 2
+      ;;
+    --when-busy)
+      [ $# -ge 2 ] || usage
+      when_busy="$2"
+      shift 2
+      ;;
+    --boot-grace)
+      [ $# -ge 2 ] || usage
+      boot_grace="$2"
+      shift 2
+      ;;
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
+
+[ "${#interfaces[@]}" -gt 0 ] || usage
+case "$when_busy" in
+  defer | restart) ;;
+  *) usage ;;
+esac
+
+# The addresses the server is actually serving, as opposed to the ones it was
+# configured to serve. Strips the port and the brackets an IPv6 socket is
+# printed with, so both families come out comparable.
+listening_addresses() {
+  ss -H -ltn "sport = :$port" \
+    | awk '{ print $4 }' \
+    | sed -e 's/:[0-9]*$//' -e 's/^\[//' -e 's/\]$//' \
+    | sort -u
+}
+
+# The addresses that ought to be served: global scope only, because smbd binds
+# neither link-local nor loopback-scope addresses even when told to bind the
+# interfaces carrying them.
+#
+# The two families are asked separately, and that is not tidiness. IPv6
+# privacy addresses are deliberately left out - they rotate every 45 minutes
+# and exist for outbound connections, so counting them would mean a restart
+# all day for sockets nothing ever connects to. But the flag they carry is
+# IFA_F_SECONDARY, which iproute2 spells both "temporary" AND "secondary", and
+# which it also puts on a second IPv4 address in the same subnet. On this host
+# that second address is the takeover address the file server is reached by,
+# so a single "-temporary" across both families would hide the very address
+# this script exists to notice. Measured 2026-11-25: it dropped 10.0.0.9.
+configured_addresses() {
+  local iface
+  for iface in "${interfaces[@]}"; do
+    ip -4 -o address show dev "$iface" scope global 2>/dev/null || true
+    ip -6 -o address show dev "$iface" scope global \
+      -temporary -tentative -deprecated -dadfailed 2>/dev/null || true
+  done \
+    | awk '{ print $4 }' \
+    | cut -d/ -f1 \
+    | sort -u
+}
+
+# How many addresses are still mid-DAD. Counting them is the whole reason this
+# waits at all: an address in that state cannot be bound, so acting
+# immediately on a network event reproduces the original bug rather than
+# fixing it.
+tentative_count() {
+  local iface count total=0
+  for iface in "${interfaces[@]}"; do
+    count=$(ip -6 -o address show dev "$iface" scope global tentative 2>/dev/null | wc -l)
+    total=$((total + count))
+  done
+  printf '%s\n' "$total"
+}
+
+# Anybody mid-transfer. Counted from the sockets rather than from smbstatus,
+# which takes the locking database's word for it and lists sessions whose
+# process is gone.
+established_count() {
+  ss -H -tn state established "sport = :$port" | wc -l
+}
+
+# How long the unit has been up, in seconds, or -1 when that cannot be read.
+# Monotonic, so it is immune to the clock being set during boot - which is
+# exactly when this is consulted.
+unit_age_seconds() {
+  local mono now
+  mono="$(systemctl show "$unit" -p ActiveEnterTimestampMonotonic --value 2>/dev/null)"
+  case "$mono" in
+    "" | 0 | *[!0-9]*) printf '%s\n' "-1"; return ;;
+  esac
+  now="$(cut -d. -f1 /proc/uptime)"
+  printf '%s\n' "$((now - mono / 1000000))"
+}
+
+# Nothing to rebind on a server that is not running; it will bind whatever
+# exists when it starts. This is the ordinary case during a boot, where the
+# dispatcher can easily fire before smbd is up.
+if ! systemctl is-active --quiet "$unit"; then
+  exit 0
+fi
+
+waited=0
+while [ "$waited" -lt "$settle" ] && [ "$(tentative_count)" -gt 0 ]; do
+  sleep 1
+  waited=$((waited + 1))
+done
+
+listening=$(listening_addresses)
+
+# A wildcard socket already covers every address the host has or will have, so
+# there is nothing to do. That is the "bind interfaces only = no" case, and it
+# is not a problem to report.
+if printf '%s\n' "$listening" | grep -qxE '\*|0\.0\.0\.0|::'; then
+  exit 0
+fi
+
+missing=$(comm -23 <(configured_addresses) <(printf '%s\n' "$listening"))
+
+if [ -z "$missing" ]; then
+  printf '%s is listening on every address on %s\n' "$unit" "${interfaces[*]}"
+  exit 0
+fi
+
+summary=$(printf '%s' "$missing" | tr '\n' ' ')
+
+if [ "$dry_run" = true ]; then
+  printf 'would restart %s: not listening on %s\n' "$unit" "$summary"
+  exit 0
+fi
+
+# Deferring while somebody is connected is right in steady state and WRONG
+# for the case this exists for. Measured the hard way on acermagic
+# 2026-11-25: smbd came up IPv4-only after a restart, the Windows client
+# reconnected within seconds, and from then on every run of this script found
+# a session open and deferred - so the deferral was permanent and the host
+# stayed IPv4-only. File History holds sessions for long stretches, so
+# "later, when nobody is connected" can mean never.
+#
+# The boot grace resolves it without giving up the protection: a restart
+# within the first couple of minutes of the unit's life cannot interrupt a
+# transfer that has been going long enough to be worth saving, because there
+# has not been time for one.
+sessions=$(established_count)
+if [ "$sessions" -gt 0 ] && [ "$when_busy" = "defer" ]; then
+  age=$(unit_age_seconds)
+  if [ "$age" -ge 0 ] && [ "$age" -lt "$boot_grace" ]; then
+    log_line="$unit is only ${age}s old, so restarting despite $sessions connected"
+    printf '%s\n' "$log_line"
+    logger -t fileserver-rebind -p daemon.notice -- "$log_line" || true
+  else
+    printf '%s is not listening on %s; deferring, %d connected\n' \
+      "$unit" "$summary" "$sessions"
+    logger -t fileserver-rebind -p daemon.warning -- \
+      "$unit is not listening on $summary; deferring a restart, $sessions connected" || true
+    exit 0
+  fi
+fi
+
+logger -t fileserver-rebind -p daemon.notice -- \
+  "restarting $unit: not listening on $summary" || true
+
+if ! systemctl restart "$unit"; then
+  printf 'ERROR: %s is not listening on %s and would not restart\n' "$unit" "$summary" >&2
+  logger -t fileserver-rebind -p daemon.err -- \
+    "$unit is not listening on $summary and would not restart" || true
+  exit 1
+fi
+
+# Check the restart actually achieved something, rather than reporting the
+# action and trusting it. This is not defensive padding: the first version of
+# this script sent SIGHUP instead, logged a tidy "reloaded", and bound
+# nothing. Verifying would have said so immediately.
+# smbd is Type=notify and has its sockets open before systemctl returns, so
+# the first look is normally the only one. The retry is for a unit that is
+# not, rather than for smbd.
+checked=0
+still_missing=$(comm -23 <(configured_addresses) <(listening_addresses))
+while [ -n "$still_missing" ] && [ "$checked" -lt 3 ]; do
+  sleep 1
+  checked=$((checked + 1))
+  still_missing=$(comm -23 <(configured_addresses) <(listening_addresses))
+done
+
+if [ -n "$still_missing" ]; then
+  stubborn=$(printf '%s' "$still_missing" | tr '\n' ' ')
+  printf 'ERROR: %s restarted and is STILL not listening on %s\n' "$unit" "$stubborn" >&2
+  logger -t fileserver-rebind -p daemon.err -- \
+    "$unit restarted and is still not listening on $stubborn" || true
+  exit 1
+fi
+
+printf 'restarted %s: it was not listening on %s\n' "$unit" "$summary"

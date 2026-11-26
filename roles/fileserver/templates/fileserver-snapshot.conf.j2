@@ -1,0 +1,36 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+# Sourced by /usr/local/sbin/fileserver-snapshot, so every line must be a
+# bare KEY=value that bash can read.
+
+# How long the share must have been untouched before it is snapshotted,
+# measured by ctime because File History backdates mtime. A snapshot is
+# atomic, so this is no longer protecting against a half-copied tree; it is
+# protecting against a perfectly consistent snapshot of a half-written
+# wbadmin image, which is a poor restore point either way.
+QUIET_MINUTES={{ fileserver_snapshot_quiet_minutes }}
+
+# Snapshots kept per share, pruned oldest first. Deep on purpose, which is
+# the whole advantage of doing this with snapshots: each one shares every
+# unchanged extent with the live share, so history costs what has actually
+# changed rather than a tree per generation. Retention depth is also the only
+# thing standing between a client that is compromised at 02:00 and noticed at
+# 08:00, so hours of it is the point.
+KEEP={{ fileserver_snapshot_keep }}
+
+# A new snapshot is refused below this much free space. A snapshot costs
+# nothing when it is taken, but a retained one pins every extent its share
+# has since replaced.
+MIN_FREE_GB={{ fileserver_snapshot_min_free_gb }}
+
+# Where the histories live: SNAPSHOT_DIR/<share>/<timestamp>. Deliberately
+# not inside any share, so nothing is reachable over SMB at all - the
+# read-only snapshots would be safe to expose, but there is no reason to.
+SNAPSHOT_DIR={{ fileserver_snapshot_dir }}
+
+# One absolute path per line. Each must be a btrfs subvolume; one that is
+# still a plain directory is reported every run and skipped.
+SUBVOLUMES="
+{% for share in fileserver_snapshot %}
+{{ (fileserver_shares | selectattr('name', 'equalto', share) | first).path | default(fileserver_root + '/' + share) }}
+{% endfor %}
+"

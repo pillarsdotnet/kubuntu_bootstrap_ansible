@@ -1,0 +1,159 @@
+#!/bin/bash
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+#
+# Make a share directory into a btrfs subvolume, so it can be snapshotted.
+#
+# btrfs can only snapshot a subvolume, and this role has always created the
+# shares as plain directories. Converting an empty one is nothing; converting
+# one that holds backups means moving data, so the two cases are deliberately
+# separated and the second needs --move passed on purpose.
+#
+# Prints one word on stdout saying what it found, so the role can report
+# without parsing prose:
+#
+#   already-subvolume   nothing to do
+#   converted-empty     it was an empty directory and now it is a subvolume
+#   needs-move          it holds data; re-run with --move in a quiet window
+#   converted-moved     it held data and has been converted
+#
+# The move is cheap and reversible, which is the only reason it is safe to
+# offer at all:
+#
+#   - "cp -a --reflink=always" shares every extent with the original, so the
+#     copy costs no space and takes no time proportional to the data. It is
+#     also the interlock: --reflink=always FAILS rather than falling back to a
+#     real copy, so a filesystem that cannot do this gets no further.
+#   - The original is left behind as <share>.old rather than deleted. It is
+#     reflinked, so keeping it costs nothing, and it is the undo. Removing it
+#     is a separate decision for whoever checked the result.
+#   - It refuses while a client has the share open, because swapping the
+#     directory under a Windows machine mid-backup is how you get a truncated
+#     file that looks like a backup.
+#
+# One consequence to expect rather than debug: the copy RESETS every file's
+# ctime, because ctime is set by the kernel on creation and "cp -a" cannot
+# preserve it the way it preserves mtime. The snapshot timer measures its
+# quiet period by ctime, so a freshly converted share looks as though it was
+# written this second and takes no snapshot until the quiet period has
+# elapsed. Measured 2026-11-26: 37 GiB and 36592 entries converted in 2.0
+# seconds, and the next snapshot run reported "changed 0m ago". If the share
+# needs a restore point immediately, take one with a QUIET_MINUTES=0 copy of
+# the policy rather than waiting it out.
+set -euo pipefail
+
+path=""
+do_move=false
+dry_run=false
+
+usage() {
+  echo "usage: $0 --path DIR [--move] [--dry-run]" >&2
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --path)
+      [ $# -ge 2 ] || usage
+      path="${2%/}"
+      shift 2
+      ;;
+    --move)
+      do_move=true
+      shift
+      ;;
+    --dry-run)
+      dry_run=true
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$path" ] || usage
+
+log() {
+  logger -t fileserver-subvol -- "$*" || true
+  printf 'fileserver-subvol: %s\n' "$*" >&2
+}
+
+if [ ! -d "$path" ]; then
+  log "ERROR: $path is not a directory"
+  exit 1
+fi
+
+if btrfs subvolume show "$path" >/dev/null 2>&1; then
+  echo "already-subvolume"
+  exit 0
+fi
+
+if [ -z "$(ls -A -- "$path")" ]; then
+  if [ "$dry_run" = true ]; then
+    log "would convert the empty directory $path into a subvolume"
+    echo "converted-empty"
+    exit 0
+  fi
+  rmdir -- "$path"
+  btrfs subvolume create -- "$path" >/dev/null
+  log "converted the empty $path into a subvolume"
+  echo "converted-empty"
+  exit 0
+fi
+
+if [ "$do_move" = false ]; then
+  echo "needs-move"
+  exit 0
+fi
+
+# Anybody connected to this share right now. smbstatus prints the share's
+# path in its locked-files listing, which is what makes this checkable from a
+# path rather than from a share name.
+if smbstatus -L 2>/dev/null | grep -qF -- "$path"; then
+  log "REFUSING: a client has $path open. Converting under a running backup can truncate it. Wait for the client to finish, or stop smbd first."
+  exit 1
+fi
+
+new="$path.converting"
+old="$path.old"
+
+for leftover in "$new" "$old"; do
+  if [ -e "$leftover" ]; then
+    log "ERROR: $leftover already exists, so a previous conversion did not finish. Look at it before running this again."
+    exit 1
+  fi
+done
+
+before="$(find "$path" -mindepth 1 | wc -l)"
+
+if [ "$dry_run" = true ]; then
+  log "would convert $path ($before entries) by reflinking into $new and swapping, leaving $old behind"
+  echo "converted-moved"
+  exit 0
+fi
+
+log "converting $path ($before entries)"
+btrfs subvolume create -- "$new" >/dev/null
+
+# --reflink=always, never auto: a silent fall back to copying the data would
+# turn this from a metadata operation into hours of I/O and a second full
+# copy of somebody's backups.
+if ! cp -a --reflink=always -- "$path/." "$new/"; then
+  log "ERROR: reflink copy of $path failed; removing $new and leaving the original alone"
+  btrfs subvolume delete -- "$new" >/dev/null 2>&1 || true
+  exit 1
+fi
+
+after="$(find "$new" -mindepth 1 | wc -l)"
+if [ "$before" -ne "$after" ]; then
+  log "ERROR: $path had $before entries and the copy has $after; removing $new and leaving the original alone"
+  btrfs subvolume delete -- "$new" >/dev/null 2>&1 || true
+  exit 1
+fi
+
+# Two renames rather than one, so there is no instant where the share path
+# does not exist.
+mv -- "$path" "$old"
+mv -- "$new" "$path"
+
+# $old is the original plain directory, not a subvolume, so it goes with rm.
+log "converted $path. The original is $old, reflinked so it costs nothing - that is the undo. Check the share, then: rm -rf $old"
+echo "converted-moved"

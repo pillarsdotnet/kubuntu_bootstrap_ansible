@@ -13,7 +13,11 @@ Type=oneshot
 ExecStart=/usr/local/sbin/fileserver-dedupe \
     --hashfile {{ fileserver_dedupe_hashfile }} \
     --blocksize {{ fileserver_dedupe_blocksize }} \
-{% for dedupe_path in (fileserver_dedupe_paths if fileserver_dedupe_paths | length > 0 else [fileserver_root]) %}
+{% set fileserver_dedupe_share_paths = [] %}
+{% for share in fileserver_shares %}
+{%   set _ = fileserver_dedupe_share_paths.append(share.path | default(fileserver_root ~ '/' ~ share.name)) %}
+{% endfor %}
+{% for dedupe_path in (fileserver_dedupe_paths if fileserver_dedupe_paths | length > 0 else fileserver_dedupe_share_paths) %}
     --path {{ dedupe_path }}{{ " \\" if not loop.last else "" }}
 {% endfor %}
 # A run that cannot finish overnight is not keeping up. Failing is the signal;
@@ -24,4 +28,17 @@ TimeoutStartSec={{ fileserver_dedupe_timeout }}
 # out. Idle I/O and the lowest CPU priority: it has all night.
 IOSchedulingClass=idle
 CPUSchedulingPolicy=idle
+# Deliberately NO MemoryMax here, and the reason is worth recording because
+# the obvious reading of the numbers is wrong. systemd reported this unit
+# peaking at 23.2 GB on a 31 GB host, which looks like a runaway - but
+# MemoryPeak counts the whole cgroup INCLUDING page cache, and duperemove's
+# own RSS at that moment was 28 MB. The 23 GB was the page cache from reading
+# 37 GiB of share, which is reclaimable and threatens nothing.
+#
+# A ceiling was tried and made things worse: it pinned the cgroup at the
+# limit and forced constant reclaim while the job was still reading, so the
+# run got slower rather than safer. The honest controls for a nightly
+# maintenance job are the ones already here - idle I/O, Nice=19 - plus
+# TimeoutStartSec below, which is what catches a run that genuinely cannot
+# keep up. If this unit's memory figure ever alarms you, check RSS first.
 Nice=19

@@ -158,6 +158,7 @@
           {{ ['samba']
              + (['wsdd'] if (fileserver_wsdd | bool) else [])
              + (['rsync'] if (fileserver_replicate | length > 0) else [])
+             + (['btrfs-progs'] if (fileserver_snapshot | length > 0) else [])
              + (['duperemove'] if (fileserver_dedupe_enabled | bool) else []) }}
         state: present
         update_cache: true
@@ -282,6 +283,76 @@
         enabled: true
         state: started
       when: "fileserver_wsdd | bool"
+
+    # smbd binds the addresses that exist at the moment it starts, and naming
+    # interfaces above also set "bind interfaces only", so there is no
+    # wildcard socket to catch one that arrives later. On a host addressed by
+    # DHCP or an RA that is a race, and acermagic lost it on 2026-11-25 by one
+    # second. Nothing is installed where there is nothing to race: with no
+    # interfaces listed, smbd already holds a wildcard socket.
+    - name: "Rebind smbd when an interface gains an address"
+      when:
+        - "fileserver_rebind_hook | bool"
+        - "fileserver_interfaces | length > 0"
+      block:
+        - name: "Install the rebind script"
+          ansible.builtin.copy:
+            dest: "/usr/local/sbin/fileserver-rebind"
+            group: "root"
+            mode: "0755"
+            owner: "root"
+            src: "fileserver-rebind"
+
+        # dispatcher.d proper, because no-wait.d is never read - see the
+        # measurement in the template. NetworkManager also skips a dispatcher
+        # script that is not executable, or that anyone but root can write, in
+        # both cases without a word anywhere, hence the explicit owner and
+        # mode.
+        - name: "Install the NetworkManager dispatcher hook"
+          ansible.builtin.template:
+            dest: "/etc/NetworkManager/dispatcher.d/50-fileserver-rebind"
+            group: "root"
+            mode: "0755"
+            owner: "root"
+            src: "fileserver-rebind.j2"
+
+        # Where this hook used to live, and was never once executed.
+        - name: "Remove the hook from the directory NetworkManager ignores"
+          ansible.builtin.file:
+            path: "/etc/NetworkManager/dispatcher.d/no-wait.d/50-fileserver-rebind"
+            state: "absent"
+
+        # D-Bus activated, so it is normally not running and that is correct.
+        # It still has to be enabled, or no hook ever runs.
+        - name: "Enable the dispatcher that runs the hook"
+          ansible.builtin.systemd_service:
+            enabled: true
+            name: "NetworkManager-dispatcher.service"
+
+        # The hook fixes the next event; this fixes the current boot, so a
+        # setup run does not leave a host serving fewer addresses than it
+        # should until something happens on the network.
+        #
+        # No "check_mode: false" here, deliberately. The command module skips
+        # itself under --check, which is what is wanted: with that override it
+        # ran for real against a host where the script above had only been
+        # simulated, and failed on a file that was never written.
+        - name: "Bind any address smbd came up without"
+          ansible.builtin.command:
+            argv:
+              - "/usr/local/sbin/fileserver-rebind"
+              - "--interfaces"
+              - "{{ fileserver_interfaces | join(' ') }}"
+              - "--unit"
+              - "smbd.service"
+              - "--settle"
+              - "{{ fileserver_rebind_settle_seconds }}"
+              - "--when-busy"
+              - "{{ fileserver_rebind_when_busy }}"
+              - "--boot-grace"
+              - "{{ fileserver_rebind_boot_grace_seconds }}"
+          changed_when: "'restarted' in fileserver_rebind_run.stdout"
+          register: "fileserver_rebind_run"
 
     - name: "Install the free-space check"
       ansible.builtin.copy:
@@ -408,6 +479,170 @@
         enabled: true
         state: started
       when: "fileserver_replicate | length > 0"
+
+    # A host that has moved to snapshots would otherwise keep an hourly timer
+    # running against a policy file that no longer names any pairs. It exits 0
+    # and does nothing, which is the kind of thing that goes unnoticed for a
+    # year. The snapshots it already wrote are data and are left alone.
+    - name: "Remove the consolidation once it is no longer configured"
+      when: "fileserver_replicate | length == 0"
+      block:
+        - name: "Look for a consolidation timer left from before"
+          ansible.builtin.stat:
+            path: "/etc/systemd/system/fileserver-replicate.timer"
+          register: "fileserver_replicate_leftover"
+
+        - name: "Stop and disable it"
+          ansible.builtin.systemd_service:
+            enabled: false
+            name: "fileserver-replicate.timer"
+            state: "stopped"
+          when: "fileserver_replicate_leftover.stat.exists"
+
+        - name: "Remove its units, its policy and its script"
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: "absent"
+          loop:
+            - "/etc/systemd/system/fileserver-replicate.timer"
+            - "/etc/systemd/system/fileserver-replicate.service"
+            - "/etc/fileserver-replicate.conf"
+            - "/usr/local/sbin/fileserver-replicate"
+          notify: "Reload systemd timers"
+
+    # Nothing here is installed on a host that did not ask for it, so the
+    # script and its units are absent rather than present and inert.
+    - name: "Keep a read-only snapshot history of the shares"
+      when: "fileserver_snapshot | length > 0"
+      block:
+        - name: "Read the filesystem the shares actually sit on"
+          ansible.builtin.command:
+            argv: ["findmnt", "-no", "FSTYPE", "--target", "{{ fileserver_root }}"]
+          changed_when: false
+          register: "fileserver_snapshot_fstype"
+          check_mode: false
+
+        # Measured rather than taken from fileserver_fstype, which describes
+        # the device this role mounts and says nothing on a host where the
+        # shares sit on a filesystem somebody else mounted.
+        - name: "Check the shares can be snapshotted at all"
+          ansible.builtin.assert:
+            fail_msg: >-
+              fileserver_snapshot is set, but {{ fileserver_root }} is on
+              "{{ fileserver_snapshot_fstype.stdout | trim }}" rather than
+              btrfs, or it names a share that is not in fileserver_shares.
+              Snapshots need a filesystem that can take them; on anything else
+              use fileserver_replicate.
+            quiet: true
+            that:
+              - "fileserver_snapshot_fstype.stdout | trim == 'btrfs'"
+              - >-
+                fileserver_snapshot
+                | difference(fileserver_shares | map(attribute='name') | list)
+                | length == 0
+
+        - name: "Work out where each share to snapshot lives"
+          ansible.builtin.set_fact:
+            fileserver_snapshot_paths: >-
+              {{ (fileserver_snapshot_paths | default([])) + [share_path] }}
+          loop: "{{ fileserver_snapshot }}"
+          vars:
+            share_path: >-
+              {{ (fileserver_shares | selectattr('name', 'equalto', item)
+                  | first).path | default(fileserver_root ~ '/' ~ item) }}
+
+        # Root-only and outside every share. The snapshots are read-only and
+        # would be safe to expose, but nothing needs them to be.
+        - name: "Create the directory the histories live in"
+          ansible.builtin.file:
+            group: "root"
+            mode: "0700"
+            owner: "root"
+            path: "{{ fileserver_snapshot_dir }}"
+            state: "directory"
+
+        # btrfs can only snapshot a subvolume, and the shares were created as
+        # plain directories. Converting one that holds data means moving that
+        # data, which is not something a config run should do behind your
+        # back - so an empty share is converted and a populated one is only
+        # reported. The script says so again on every run until it is done.
+        - name: "Install the subvolume conversion helper"
+          ansible.builtin.copy:
+            dest: "/usr/local/sbin/fileserver-subvol"
+            group: "root"
+            mode: "0755"
+            owner: "root"
+            src: "fileserver-subvol"
+
+        # Without --move it converts an empty directory and only REPORTS one
+        # that holds data, which is the whole point: moving somebody's backups
+        # is not something a config run should decide to do.
+        - name: "Convert an empty share directory into a subvolume"
+          ansible.builtin.command:
+            argv:
+              - "/usr/local/sbin/fileserver-subvol"
+              - "--path"
+              - "{{ item }}"
+          changed_when: >-
+            'converted' in (fileserver_snapshot_convert.stdout | default(''))
+          loop: "{{ fileserver_snapshot_paths }}"
+          register: "fileserver_snapshot_convert"
+
+        - name: "Say which shares still have to be converted by hand"
+          ansible.builtin.debug:
+            msg: >-
+              {{ item.item }} holds data and is not a subvolume, so it has no
+              snapshot history yet. Convert it in a window when nothing is
+              writing to it, with "fileserver-subvol --path {{ item.item }}
+              --move" - it reflinks, so it costs no space and no time, leaves
+              the original beside it as the undo, and refuses while a client
+              has the share open. The timer reports this every run until then.
+          loop: "{{ fileserver_snapshot_convert.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item }}"
+          when: "'needs-move' in (item.stdout | default(''))"
+
+        - name: "Install the snapshot script"
+          ansible.builtin.copy:
+            dest: "/usr/local/sbin/fileserver-snapshot"
+            group: "root"
+            mode: "0755"
+            owner: "root"
+            src: "fileserver-snapshot"
+
+        # No handler: the script sources this on each run, so a changed
+        # threshold takes effect at the next firing without restarting
+        # anything.
+        - name: "Write the snapshot policy"
+          ansible.builtin.template:
+            dest: "/etc/fileserver-snapshot.conf"
+            group: "root"
+            mode: "0644"
+            owner: "root"
+            src: "fileserver-snapshot.conf.j2"
+
+        - name: "Install the snapshot units"
+          ansible.builtin.template:
+            dest: "/etc/systemd/system/{{ item }}"
+            group: "root"
+            mode: "0644"
+            owner: "root"
+            src: "{{ item }}.j2"
+          loop:
+            - "fileserver-snapshot.service"
+            - "fileserver-snapshot.timer"
+          notify: "Reload systemd timers"
+
+        - name: "Reload systemd so the snapshot units are visible"
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+          changed_when: false
+
+        - name: "Enable the snapshot timer"
+          ansible.builtin.systemd_service:
+            enabled: true
+            name: "fileserver-snapshot.timer"
+            state: "started"
 
     # Nothing here is installed on a host that did not ask for it, so the
     # script and its units are absent rather than present and inert.

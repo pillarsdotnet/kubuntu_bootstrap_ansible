@@ -17,7 +17,9 @@
 #   - A source still being written is skipped. Windows streams a system image
 #     over SMB for minutes at a time, and copying mid-write captures a torn
 #     file that looks like a backup and is not one. So nothing is copied until
-#     the newest file in the source has been untouched for QUIET_MINUTES.
+#     the newest file in the source has been untouched for QUIET_MINUTES -
+#     measured by ctime, because File History backdates mtime. See
+#     newest_change below, which is where that bug was found.
 #
 #   - A snapshot that would breach the free-space floor is refused rather than
 #     started. These shares sit on the same filesystem as the rest of the
@@ -55,10 +57,23 @@ free_gb() {
   printf '%s' "$((avail / 1024 / 1024))"
 }
 
-# Newest mtime anywhere under the source, in seconds since the epoch. Empty
-# when the source holds no files at all.
-newest_mtime() {
-  find "$1" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1
+# Newest CHANGE time anywhere under the source, in seconds since the epoch.
+# Empty when the source holds no files at all.
+#
+# ctime, not mtime, and the difference is not academic. File History preserves
+# the timestamps of the files it copies, so a file written to the share this
+# second carries whatever mtime it had on the client. Measured on acermagic
+# 2026-11-25, mid-backup: 129 files had been written in the previous three
+# minutes and their mtimes read 2025-03-24. The run at 23:01 concluded the
+# source had been quiet for 11 minutes while Windows was actively streaming
+# into it, and had that reached QUIET_MINUTES it would have copied a torn,
+# half-written File History and kept it as a restore point.
+#
+# ctime is set by the kernel on write and an SMB client cannot set it, which
+# also means a compromised client cannot backdate its way past the quiet
+# period to hurry a corrupted copy into the destination.
+newest_change() {
+  find "$1" -type f -printf '%C@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1
 }
 
 replicate() {
@@ -74,7 +89,7 @@ replicate() {
   fi
 
   local newest
-  newest="$(newest_mtime "$source")"
+  newest="$(newest_change "$source")"
   if [ -z "$newest" ]; then
     log "$source is empty; nothing to copy"
     return 0

@@ -1,0 +1,50 @@
+#!/bin/bash
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+#
+# NetworkManager dispatcher hook: restart smbd when an interface it serves
+# gains an address it is not listening on. See /usr/local/sbin/fileserver-
+# rebind for why that happens, and why nothing short of a restart fixes it.
+#
+# This lives in dispatcher.d proper, NOT in no-wait.d, which is where it
+# belongs on paper: the script waits briefly for duplicate address detection,
+# and a no-wait.d script would not hold up the other hooks meanwhile.
+#
+# no-wait.d does not work. NetworkManager-dispatcher 1.58.1 never runs scripts
+# there, whatever its man page says about "dispatcher.d directory or
+# subdirectories". Measured on acermagic overnight 2026-11-25: two identical
+# probes, one in each directory, root-owned and 0755, across four DHCPv6
+# renewals - the dispatcher.d one fired every time (06:33:56, 06:56:22,
+# 07:18:40, 07:39:15) and the no-wait.d one never fired at all. The first
+# version of this hook sat in no-wait.d and was never once executed.
+#
+# So NetworkManager waits for this script. Keep --settle small for that
+# reason: every other hook queues behind it.
+set -euo pipefail
+
+interface="${1:-}"
+action="${2:-}"
+
+# "up" covers a boot and a reassociation; the DHCP changes cover a lease that
+# arrives late or renews onto a different address. Everything else exits here,
+# and there is a lot of everything else - this runs for every interface the
+# host has, container bridges included.
+case "$action" in
+  up | dhcp4-change | dhcp6-change | reapply) ;;
+  *) exit 0 ;;
+esac
+
+# Only the interfaces smbd was told to bind. A docker or Kubernetes bridge
+# coming up is not a reason to touch the file server.
+case "$interface" in
+{% for fileserver_rebind_iface in fileserver_interfaces %}
+  {{ fileserver_rebind_iface }}) ;;
+{% endfor %}
+  *) exit 0 ;;
+esac
+
+exec /usr/local/sbin/fileserver-rebind \
+  --interfaces "{{ fileserver_interfaces | join(' ') }}" \
+  --unit "smbd.service" \
+  --settle "{{ fileserver_rebind_settle_seconds }}" \
+  --when-busy "{{ fileserver_rebind_when_busy }}" \
+  --boot-grace "{{ fileserver_rebind_boot_grace_seconds }}"

@@ -92,6 +92,13 @@ fileserver_hosts_deny:
 # substitute for the host lists above, and it does not survive an interface
 # rename - a host moved from wireless to wired stops serving until this is
 # updated.
+#
+# Read "every address" as "every address that existed when smbd started".
+# smbd enumerates interfaces once and binds then, and naming interfaces here
+# also sets "bind interfaces only", which leaves no wildcard socket to catch
+# what arrives afterwards. On a host whose addresses come from DHCP or an RA
+# that is a race it loses about as often as it wins - see
+# fileserver_rebind_hook below, which is the compensating control.
 fileserver_interfaces: []
 
 # Filter the share list down to what the connecting account can actually
@@ -111,6 +118,61 @@ fileserver_access_based_enum: true
 fileserver_min_protocol: "SMB3"
 fileserver_encrypt: "desired"
 
+# Restart smbd when an interface named in fileserver_interfaces gains an
+# address smbd is not listening on, through a NetworkManager dispatcher hook.
+#
+# This exists because of a measured, repeatable boot race on acermagic,
+# 2026-11-25: the DHCPv6 lease landed one second before smbd started, with the
+# addresses still tentative under duplicate address detection - which bind()
+# refuses - and the host served SMB over IPv4 only for the six hours until
+# somebody restarted it. It recurs on every boot and on any reassociation that
+# re-runs DHCPv6.
+#
+# What makes it worth a hook rather than a note is that nothing breaks when it
+# happens. A Windows client that gets no answer on IPv6 falls back to IPv4 and
+# backs up anyway, slightly slower, so the only symptom is a delay nobody
+# attributes to this.
+#
+# The fix is a RESTART, which is the unwelcome part, because nothing cheaper
+# rebinds. Measured against Samba 4.24.7 on 2026-11-25 with an unused address
+# added to the interface: "systemctl reload" logs "Reloaded" and binds
+# nothing, "smbcontrol smbd reload-config" the same, and smbcontrol has no
+# message that reopens a socket at all. smbd re-reads smb.conf on SIGHUP
+# without reconsidering what it listens on.
+#
+# Only meaningful when fileserver_interfaces names something: with no
+# interfaces listed smbd holds a wildcard socket, which has no such race, and
+# the hook is not installed.
+fileserver_rebind_hook: true
+# How long to let duplicate address detection finish before deciding what is
+# missing. Acting immediately is what produced the bug in the first place: a
+# tentative address cannot be bound. A second is the usual cost; this is the
+# ceiling, not the wait.
+fileserver_rebind_settle_seconds: 5
+# What to do when addresses are missing AND somebody is connected. "defer"
+# logs a warning and leaves, letting the next network event try again;
+# "restart" interrupts them.
+#
+# Defer is the default because of the asymmetry. The symptom being fixed costs
+# a client one failed connection attempt before it falls back to IPv4 and
+# backs up anyway; a restart in the wrong second costs a wbadmin system image.
+# The case this hook exists for - the first seconds after a boot - has nothing
+# connected to defer to, so the default fixes it immediately and waits only in
+# the cases where waiting is the right answer.
+fileserver_rebind_when_busy: "defer"
+# ...except within this long of smbd starting, when it restarts regardless.
+#
+# Deferring turned out to be permanent in practice without this. Measured on
+# acermagic 2026-11-25: smbd came up IPv4-only, the Windows client reconnected
+# within seconds, and every later run found that session open and deferred, so
+# the host simply stayed IPv4-only. File History holds sessions for long
+# stretches, so "later, when nobody is connected" can mean never.
+#
+# A restart this soon after the unit started cannot interrupt a transfer worth
+# saving, because there has not been time for one - which is what makes this
+# safe where deferring is otherwise right.
+fileserver_rebind_boot_grace_seconds: 120
+
 # Make the host appear in a Windows Explorer "Network" listing. Windows 10 and
 # 11 dropped the NetBIOS browsing that nmbd provides, and use WS-Discovery
 # instead, so without this the share works but has to be typed in by address.
@@ -128,14 +190,69 @@ fileserver_wsdd_interface: ""
 # filesystem. On a host whose volume group is a linear span with no parity,
 # one drive failure takes the original and every snapshot together. It guards
 # against a machine losing its own backup, not against this host losing a disk.
+# On a btrfs host, prefer fileserver_snapshot below. This copies, which means
+# writing duplication that the nightly dedup pass then has to undo, and it
+# walks the tree for minutes where a snapshot is instant. What it still has
+# that snapshots do not is the ability to cross a filesystem boundary - a
+# snapshot cannot leave the filesystem it was taken on - so this remains the
+# tool for getting data somewhere else, and btrfs send is the better one.
 fileserver_replicate: []
 fileserver_replicate_interval: "hourly"
-# How long the source must have been untouched before it is copied.
+# How long the source must have been untouched before it is copied, measured
+# by CTIME. Not mtime: File History preserves the timestamps of the files it
+# copies, so a file written to the share this second can carry a mtime from
+# last year. Measured on acermagic 2026-11-25 mid-backup, 129 files written
+# in the previous three minutes all read 2025-03-24, and the run at 23:01
+# believed the share had been idle for 11 minutes while Windows was streaming
+# into it. ctime is set by the kernel on write and no SMB client can set it.
 fileserver_replicate_quiet_minutes: 15
 # Snapshots kept per destination, pruned oldest first.
 fileserver_replicate_keep: 3
 # A new snapshot is refused below this much free space rather than started.
 fileserver_replicate_min_free_gb: 500
+
+# Keep a read-only btrfs snapshot history of these shares, by name, as
+# SNAPSHOT_DIR/<share>/<timestamp>. Empty installs nothing.
+#
+# This is the replacement for fileserver_replicate on a btrfs host, and it is
+# better on every axis that matters here. Measured on acermagic 2026-11-25:
+#
+#   - A snapshot shares every extent at creation, so the duplication a copy
+#     would write is never written and there is nothing for the nightly dedup
+#     pass to reclaim. Two identical 16 MiB files came out "exclusive=0
+#     shared=16MiB" the instant the snapshot existed.
+#   - It is atomic, so it cannot capture a half-copied tree.
+#   - It is read-only at the filesystem level, so NO permission on any share
+#     can alter it - appending and unlinking both fail with "Read-only file
+#     system" even as root. That is the protection a compromised Windows
+#     client needs to be denied, and unlike chattr +i it does not break
+#     deduplication: duperemove reads from the snapshot and writes to the
+#     live copy, and reclaimed 16 MiB across exactly that pair in testing.
+#
+# It is NOT redundancy: a snapshot shares extents with the live share, so one
+# disk failure takes both. Neither was the copy it replaces, which hardlinks
+# unchanged files. Having subvolumes is the prerequisite for btrfs send,
+# which is the way to an actual second copy.
+#
+# Requires btrfs, and requires each named share to BE a subvolume. The role
+# converts an EMPTY share directory into one; a share that already holds data
+# has to be converted by hand, because that moves data. Until it is, the
+# timer reports it every run and takes no history of it.
+fileserver_snapshot: []
+fileserver_snapshot_interval: "hourly"
+# Where the histories live. Outside every share on purpose: the read-only
+# snapshots would be safe to expose over SMB, but nothing needs them to be.
+fileserver_snapshot_dir: "{{ fileserver_root }}/.snapshots"
+# How long the share must have been untouched first, by ctime. See the note
+# on fileserver_replicate_quiet_minutes - mtime is not usable here.
+fileserver_snapshot_quiet_minutes: 15
+# Snapshots kept per share. Deep, because that is the advantage: history
+# costs what changed, not a tree per generation. Two days of hourly history
+# is also what decides whether a client compromised at 02:00 and noticed at
+# 08:00 is recoverable.
+fileserver_snapshot_keep: 48
+# A new snapshot is refused below this much free space.
+fileserver_snapshot_min_free_gb: 500
 
 # Warn before the filesystem holding the shares fills. A timer rather than a
 # quota because this host's volume group has no free extents and its ext4 has
@@ -167,7 +284,27 @@ fileserver_dedupe_enabled: false
 # two hosts that both adopt this from starting in the same minute.
 fileserver_dedupe_interval: "03:00"
 fileserver_dedupe_randomized_delay: "30min"
-# What to deduplicate. Empty means fileserver_root, which is every share.
+# What to deduplicate. Empty means every share in fileserver_shares - NOT
+# fileserver_root.
+#
+# That distinction is the whole point, and it was learned the hard way on
+# acermagic 2026-11-26. fileserver_snapshot_dir lives under fileserver_root,
+# so pointing duperemove at the root made it walk the live shares AND every
+# retained snapshot. Measured with three snapshots present: 146,668 entries
+# instead of 36,691, no result after ten minutes, and a **23.2 GB memory
+# peak on a 31 GB host**. At fileserver_snapshot_keep of 48 it would have
+# been walking about 1.8M entries, which is an out-of-memory kill on a host
+# whose job is to hold backups.
+#
+# It is also pointless work. A read-only snapshot shares every extent with
+# the share it came from at the moment it was taken, so there is nothing
+# there for duperemove to find - and it could not write to it anyway.
+#
+# The cost of excluding them: a block that exists only in an old snapshot and
+# again in a newly written file is not shared. For wbadmin, which rewrites a
+# whole image each run, that is a real loss. Dedupe the shares and accept it,
+# or name the paths explicitly here if you want a snapshot or two included -
+# but bound it, because this grows with retention.
 fileserver_dedupe_paths: []
 # Where duperemove keeps its extent hashes between runs.
 #

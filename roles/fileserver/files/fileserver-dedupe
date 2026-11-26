@@ -101,12 +101,20 @@ echo "hashfile: $hashfile  blocksize: $blocksize"
 # -r  recurse into the share
 # -d  actually submit the dedupe requests, rather than only reporting
 # -h  print sizes in human-readable units
+# -q  quiet. NOT cosmetic: without it duperemove narrates every extent it
+#     considers, systemd captures all of it, and journald writes roughly 45 KB
+#     per entry into its preallocated files. Measured on acermagic 2026-11-26:
+#     one nightly run against a 37 GiB share logged 23,252 lines in about five
+#     minutes - some 1 GB of journal writes, and 85% of everything that host
+#     logged in a day. Errors still reach stderr, and the summary below is
+#     built from this script's own timing and free-space readings rather than
+#     from duperemove's output, so nothing useful is lost.
 # --hashfile       keep hashes between runs, so a run reads only what changed
 # --skip-zeroes    a sparse system image is mostly holes; sharing those costs
 #                  metadata and gains nothing
 rc=0
 duperemove \
-  -r -d -h \
+  -r -d -h -q \
   -b "$blocksize" \
   --hashfile="$hashfile" \
   --skip-zeroes \

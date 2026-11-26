@@ -1,0 +1,14 @@
+# Managed by Ansible (roles/fileserver). Do not edit by hand.
+[Unit]
+Description=Periodic read-only snapshots of the backup shares
+
+[Timer]
+OnCalendar={{ fileserver_snapshot_interval }}
+# A run that fires while a backup is in flight declines and costs nothing, so
+# firing often is cheap. Unlike the copy this replaces, the work itself is
+# instant, so there is no reason to space them out.
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
