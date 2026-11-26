@@ -1,0 +1,43 @@
+---
+# Turn off Ubuntu's telemetry collector.
+#
+# ubuntu-insights collects hardware, software and platform information and
+# uploads it to Canonical. Whatever one thinks of that, on this estate it was
+# also logging: 218 lines in six hours on bobse16, because the timers fire and
+# then fail to find a consent file -
+#
+#   ERROR Failed to get consent state for source source=linux
+#   error="consent file not found ... linux-consent.toml: no such file"
+#
+# so the host was not sending anything and was complaining about it on a
+# schedule.
+#
+# TWO LEVERS, AND THE OBVIOUS ONE IS THE WEAKER. "ubuntu-insights consent -s
+# false" writes a consent file under a user's ~/.config, which covers that one
+# user and leaves the timers running to read it. The timers themselves are
+# USER units in /usr/lib/systemd/user, so masking them globally is what
+# actually stops the work - for every account, including ones created later,
+# and without depending on a file in anybody's home directory.
+#
+# Both are applied: the mask stops the timers, and the consent file is set
+# false so that anything which reads consent directly gets a clear answer
+# rather than an error.
+- name: "Hold the Ubuntu telemetry collector"
+  when: "bootstrap_ubuntu_insights_disabled | bool"
+  block:
+    - name: "Is ubuntu-insights installed?"
+      ansible.builtin.stat:
+        path: "/usr/lib/systemd/user/ubuntu-insights-collect.timer"
+      register: "bootstrap_insights_timer"
+
+    - name: "Mask its timers for every user, present and future"
+      ansible.builtin.command:
+        argv:
+          - "systemctl"
+          - "--global"
+          - "mask"
+          - "ubuntu-insights-collect.timer"
+          - "ubuntu-insights-upload.timer"
+      changed_when: "'Created symlink' in (bootstrap_insights_mask.stderr | default('')) or 'Created symlink' in (bootstrap_insights_mask.stdout | default(''))"
+      register: "bootstrap_insights_mask"
+      when: "bootstrap_insights_timer.stat.exists"

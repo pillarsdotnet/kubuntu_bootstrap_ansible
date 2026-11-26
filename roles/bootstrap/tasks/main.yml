@@ -104,6 +104,12 @@
 - name: "Hold PAM profiles that should not apply to every session"
   ansible.builtin.import_tasks: "pam_profiles.yml"
 
+- name: "Stop rsyslog writing the firewall log a second and third time"
+  ansible.builtin.import_tasks: "rsyslog_ufw.yml"
+
+- name: "Hold the Ubuntu telemetry collector"
+  ansible.builtin.import_tasks: "ubuntu_insights.yml"
+
 - name: "Add any addresses this host borrows from another"
   ansible.builtin.import_tasks: "ip_alias.yml"
   tags: ["ip_alias"]

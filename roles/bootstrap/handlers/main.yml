@@ -110,3 +110,11 @@
     daemon_reload: true
     name: "dma.timer"
     state: "restarted"
+
+# Only fires where rsyslog is actually running; a masked unit is skipped
+# rather than failing the play.
+- name: "Restart rsyslog"
+  ansible.builtin.systemd_service:
+    name: "rsyslog.service"
+    state: "restarted"
+  failed_when: false

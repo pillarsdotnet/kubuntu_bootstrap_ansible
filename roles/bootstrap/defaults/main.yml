@@ -146,3 +146,14 @@ bootstrap_dma_flush_interval: "1h"
 # inheriting it. See tasks/pam_profiles.yml for the mechanism and for why
 # kde-kwallet is the profile this was written for.
 bootstrap_pam_disabled_profiles: []
+
+# Discard the firewall's blocked-packet messages in rsyslog, keeping the
+# kernel's own record in the journal. See tasks/rsyslog_ufw.yml: the packaged
+# ufw rule ships its "& stop" commented out, so each dropped packet can land
+# in ufw.log, syslog AND kern.log on top of the journal.
+bootstrap_rsyslog_discard_ufw: true
+
+# Turn off Ubuntu's telemetry collector for every user. See
+# tasks/ubuntu_insights.yml - the collect and upload timers are USER units, so
+# this is a --global mask rather than anything system-scoped.
+bootstrap_ubuntu_insights_disabled: true

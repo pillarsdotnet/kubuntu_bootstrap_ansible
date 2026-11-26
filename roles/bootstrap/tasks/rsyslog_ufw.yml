@@ -1,0 +1,54 @@
+---
+# Keep the firewall's packet log, stop rsyslog writing it two or three times
+# over.
+#
+# ufw's blocked-packet messages come from the kernel, so journald records them
+# and "journalctl -k" is all anyone needs to read them. rsyslog then writes
+# them AGAIN to /var/log/ufw.log - and on a default Ubuntu install to
+# /var/log/syslog and /var/log/kern.log as well, because the "& stop" line in
+# the packaged /etc/rsyslog.d/20-ufw.conf is shipped COMMENTED OUT. So a
+# single dropped packet can cost four records of itself.
+#
+# Measured on racknerd 2026-11-26, a host that keeps rsyslog because a
+# fail2ban jail there tails /var/log/mail.log: ufw logging at "low" produced
+# 1,078 kernel lines in six hours, about 4,300 a day, and /var/log/ufw.log had
+# reached 5.5 MB with a 7.9 MB rotation behind it and three compressed older
+# ones.
+#
+# WHY A 10- FILE AND NOT AN EDIT. rsyslog reads /etc/rsyslog.d in lexical
+# order and "stop" ends all processing of a message, so a rule here is reached
+# before 20-ufw.conf and before the catch-all in rsyslog.conf. That leaves the
+# packaged conffile untouched, so dpkg has nothing to prompt about at the next
+# ufw upgrade - which editing 20-ufw.conf would have caused.
+#
+# This changes nothing about what the firewall logs: "ufw logging on" stays
+# on, the kernel still reports every block, and the journal still has it all.
+# It only stops the plain-text copies.
+- name: "Stop rsyslog writing the firewall log a second and third time"
+  when: "bootstrap_rsyslog_discard_ufw | bool"
+  block:
+    # Only where rsyslog is installed. On a host where it is masked the
+    # directory is usually still present, and a rule there is inert rather
+    # than wrong - but there is no reason to leave one behind either.
+    - name: "Is rsyslog configured on this host?"
+      ansible.builtin.stat:
+        path: "/etc/rsyslog.d"
+      register: "bootstrap_rsyslog_dir"
+
+    - name: "Discard the firewall's messages before any file rule sees them"
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (roles/bootstrap). Do not edit by hand.
+          # See roles/bootstrap/tasks/rsyslog_ufw.yml.
+          #
+          # The kernel's ufw messages are in the journal already - read them
+          # with "journalctl -k". This stops rsyslog writing them to
+          # /var/log/ufw.log, /var/log/syslog and /var/log/kern.log as well.
+          # "stop" ends processing, and this file sorts before 20-ufw.conf.
+          :msg, contains, "[UFW " stop
+        dest: "/etc/rsyslog.d/10-ufw-discard.conf"
+        group: "root"
+        mode: "0644"
+        owner: "root"
+      when: "bootstrap_rsyslog_dir.stat.exists"
+      notify: "Restart rsyslog"
