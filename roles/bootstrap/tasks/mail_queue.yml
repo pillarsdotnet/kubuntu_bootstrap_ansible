@@ -1,0 +1,77 @@
+---
+# Stop the mail transfer agent flushing an empty queue every five minutes,
+# twice over.
+#
+# The dma package ships BOTH a systemd timer and a cron job for the same job,
+# and expects only one of them to apply. The cron job carries its own guard:
+#
+#   */5 * * * * root if [ ! -d /run/systemd/system ] && [ -x /usr/sbin/dma ]; \
+#                      then /usr/sbin/dma -q; fi
+#
+# On a systemd host that condition is false, so the command does nothing at
+# all - but cron still opens a PAM session, logs opening it, runs the no-op,
+# logs closing it, and does so 288 times a day. Worse, every one of those PAM
+# sessions also runs pam_kwallet5, which Kubuntu puts in common-session, for
+# about four journal lines per no-op.
+#
+# Meanwhile dma.timer does the real flush on OnUnitActiveSec=5min, which is
+# three more journal lines each time.
+#
+# Measured on acermagic 2026-11-26, five quiet hours: 60 cron invocations and
+# 58 timer runs, against a queue holding nothing - /var/spool/dma contained a
+# single zero-byte file. Roughly 2,000 journal lines a day between them, for
+# no work. See tasks/drkonqi_uphold.yml for why journal lines cost more than
+# they look.
+#
+# What this does NOT do is stop dma flushing. Queued mail still leaves, just
+# on a sensible interval. Anything urgent is sent directly rather than queued,
+# so the flush interval only governs retries of mail that already failed once.
+- name: "Stop flushing an empty mail queue every five minutes"
+  when: "bootstrap_dma_flush_interval | length > 0"
+  block:
+    - name: "Is dma installed here?"
+      ansible.builtin.stat:
+        path: "/etc/systemd/system/dma.timer"
+      register: "bootstrap_dma_timer_etc"
+
+    - name: "Is dma installed here, from the package?"
+      ansible.builtin.stat:
+        path: "/usr/lib/systemd/system/dma.timer"
+      register: "bootstrap_dma_timer_lib"
+
+    - name: "Flush on a sensible interval instead"
+      when: "bootstrap_dma_timer_etc.stat.exists or bootstrap_dma_timer_lib.stat.exists"
+      block:
+        # A conffile, so dpkg will ask about it at the next upgrade rather than
+        # silently restoring it. Removing it is what its own guard is reaching
+        # for: on a systemd host the packaging means the timer to win.
+        - name: "Remove the cron job that duplicates the timer and does nothing"
+          ansible.builtin.file:
+            path: "/etc/cron.d/dma"
+            state: "absent"
+
+        - name: "Make room for the flush interval"
+          ansible.builtin.file:
+            group: "root"
+            mode: "0755"
+            owner: "root"
+            path: "/etc/systemd/system/dma.timer.d"
+            state: "directory"
+
+        # The empty assignment first is load-bearing. Timer directives
+        # ACCUMULATE: setting OnUnitActiveSec again in a drop-in adds a second
+        # trigger rather than replacing the first, so the five-minute flush
+        # would survive alongside the new one. An empty value resets the list.
+        - name: "Stretch the flush interval"
+          ansible.builtin.copy:
+            content: |
+              # Managed by Ansible (roles/bootstrap). Do not edit by hand.
+              # See roles/bootstrap/tasks/mail_queue.yml.
+              [Timer]
+              OnUnitActiveSec=
+              OnUnitActiveSec={{ bootstrap_dma_flush_interval }}
+            dest: "/etc/systemd/system/dma.timer.d/90-ansible-interval.conf"
+            group: "root"
+            mode: "0644"
+            owner: "root"
+          notify: "Reload the mail queue timer"

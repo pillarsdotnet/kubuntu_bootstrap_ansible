@@ -95,6 +95,15 @@
 - name: "Hold services this host should not run"
   ansible.builtin.import_tasks: "disabled_services.yml"
 
+- name: "Stop systemd retrying KDE's crash-handler socket for system users"
+  ansible.builtin.import_tasks: "drkonqi_uphold.yml"
+
+- name: "Stop flushing an empty mail queue every five minutes"
+  ansible.builtin.import_tasks: "mail_queue.yml"
+
+- name: "Hold PAM profiles that should not apply to every session"
+  ansible.builtin.import_tasks: "pam_profiles.yml"
+
 - name: "Add any addresses this host borrows from another"
   ansible.builtin.import_tasks: "ip_alias.yml"
   tags: ["ip_alias"]

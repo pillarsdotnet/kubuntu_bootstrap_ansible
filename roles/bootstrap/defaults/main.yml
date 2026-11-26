@@ -115,3 +115,34 @@ bootstrap_extra_addresses: []
 # suffix. Stopped, disabled and masked; units that are not installed here are
 # reported and skipped. See roles/bootstrap/tasks/disabled_services.yml.
 bootstrap_disabled_services: []
+
+# Remove the dependency symlink that makes KDE's crash-handler socket retry
+# forever in a system user's session manager. See tasks/drkonqi_uphold.yml for
+# the mechanism, the measurement and the upstream bug (KDE 502960, still open).
+#
+# On by default, and safe on a host that has never seen KDE: the task removes
+# a file, so where drkonqi is not installed there is nothing to remove and the
+# play reports no change. Set false only to leave the loop in place
+# deliberately - for instance while reproducing it for the bug report.
+bootstrap_drkonqi_uphold_fix: true
+
+# How often dma retries its mail queue. Empty leaves the packaging alone.
+#
+# The package ships a systemd timer AND a cron job for this, both every five
+# minutes, and on a systemd host the cron one is a guarded no-op that still
+# costs a PAM session and about four journal lines each time. Measured on
+# acermagic 2026-11-26: roughly 2,000 journal lines a day between the two, for
+# a queue that was empty. See tasks/mail_queue.yml.
+#
+# This governs RETRIES of mail that already failed to send - anything urgent
+# goes out directly - so an hour is not a delay anybody notices.
+bootstrap_dma_flush_interval: "1h"
+
+# pam-auth-update profiles to keep disabled, by profile name. Empty leaves
+# the host's PAM configuration alone.
+#
+# Empty by default on purpose: this edits the PAM stack, which is the one file
+# set where a mistake locks everybody out, so a host opts in rather than
+# inheriting it. See tasks/pam_profiles.yml for the mechanism and for why
+# kde-kwallet is the profile this was written for.
+bootstrap_pam_disabled_profiles: []

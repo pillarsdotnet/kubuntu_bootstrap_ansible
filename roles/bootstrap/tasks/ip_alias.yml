@@ -24,6 +24,12 @@
           nmcli -t -f NAME,DEVICE connection show --active |
             awk -F: -v d="$dev" '$2 == d {print $1; print $2; exit}'
       changed_when: false
+      # Read-only, and the two tasks after it index stdout_lines[0] and [1].
+      # Without this the shell module skips under --check, those indexes hit
+      # an empty list, and the whole play dies with "object has no element 0"
+      # on any host that has bootstrap_extra_addresses set - so --check could
+      # not be used at all here.
+      check_mode: false
       register: "bootstrap_alias_connection"
 
     - name: "Name the connection and its device"
@@ -98,6 +104,12 @@
       ansible.builtin.command:
         argv: ["ip", "-4", "-brief", "address", "show"]
       changed_when: false
+      # Read-only, and the assert below compares against this output. Skipped
+      # under --check it returns nothing, the assert fails, and the failure
+      # message claims the borrowed address "was configured but is not on any
+      # interface" - alarming, and false. Reading the live addresses is safe
+      # in check mode; it is the only way the check can tell the truth.
+      check_mode: false
       register: "bootstrap_alias_final"
 
     - name: "Report the addresses this host now holds"

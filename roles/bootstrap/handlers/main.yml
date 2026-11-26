@@ -84,3 +84,29 @@
       - "reapply"
       - "{{ bootstrap_alias_dev }}"
   changed_when: true
+
+# A session manager caches unit files until it reloads, so removing the
+# drkonqi uphold has no effect on a running one until this fires - otherwise
+# the retry loop continues until the next reboot. Only system users' managers
+# loop on it, so only they are told.
+#
+# SIGHUP is a reload, not a restart: restarting user@105.service would take
+# the display manager's greeter down with it for no reason. xargs -r so that a
+# host with no such managers runs nothing rather than erroring.
+- name: "Reload the session managers of system users"
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      systemctl list-units 'user@*.service' --no-legend --no-pager --plain
+      | awk '{ print $1 }'
+      | sed -nE 's/^user@([0-9]+)\.service$/\1/p'
+      | awk '$1 < 1000'
+      | xargs -r -I{} systemctl kill --kill-whom=main --signal=SIGHUP user@{}.service
+    executable: "/bin/bash"
+  changed_when: true
+
+- name: "Reload the mail queue timer"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "dma.timer"
+    state: "restarted"

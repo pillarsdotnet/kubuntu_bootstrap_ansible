@@ -1,0 +1,49 @@
+---
+# Stop systemd retrying KDE's crash-handler socket forever in system users'
+# session managers.
+#
+# drkonqi ships /usr/lib/systemd/user/drkonqi-coredump-launcher.socket with
+# two directives that contradict each other for a system account:
+#
+#   ConditionUser=!@system     - refuses to run for a system user
+#   UpheldBy=sockets.target    - and systemd keeps trying anyway
+#
+# Upholds is not Wants: it means "while sockets.target is active, keep this
+# unit running", so systemd re-attempts it about every ten seconds, the
+# condition fails again, the attempt is logged, the start-rate limit trips,
+# and it begins again. The unit's own comment says UpheldBy was added to
+# "prevent trigger-limit-hit failure state by restarting the unit", which is
+# sensible for a real user and a loop for a system one.
+#
+# Measured on acermagic 2026-11-26: sddm runs at uid 105, so its session
+# manager logged 986 lines per ten minutes - about 1.5 a second, indefinitely.
+# With journald writing roughly 45 KB per entry into preallocated journal
+# files, that alone was a material share of 21 GB/day of writes to the root
+# SSD. Removing the symlink took it to zero lines a minute.
+#
+# Upstream: KDE bug 502960, product drkonqi, open (ASSIGNED, no resolution and
+# no fixed-in version as of 2026-10-29, reported April 2025). Debian carries
+# 1102651 and 1102945 for the same thing. In comment 12 Fabian Vogt says
+# "systemd really just retries it itself every 10s ... maybe disable UpheldBy
+# in the meantime", which is what this does.
+#
+# WHY THE SYMLINK AND NOT THE UNIT. The uphold is materialised as a dependency
+# symlink when the unit is enabled globally, so removing just that link ends
+# the retrying while leaving both sockets.target.wants links in place - so
+# DrKonqi still works for real users, where the condition passes. The
+# workarounds in the bug report are all worse here: editing the unit under
+# /usr/lib is reverted by the next package upgrade, LogLevelMax=err hides the
+# lines while the retries continue, and "systemctl --global disable" turns the
+# socket off for everybody including the desktop user.
+#
+# It comes back. The link is created by the package's maintainer script, so a
+# drkonqi upgrade restores it and this runs again - which is the point of it
+# being here rather than a thing somebody did once by hand.
+- name: "Stop systemd retrying KDE's crash-handler socket for system users"
+  when: "bootstrap_drkonqi_uphold_fix | bool"
+  block:
+    - name: "Remove the uphold that makes the failed condition a loop"
+      ansible.builtin.file:
+        path: "/etc/systemd/user/sockets.target.upholds/drkonqi-coredump-launcher.socket"
+        state: "absent"
+      notify: "Reload the session managers of system users"

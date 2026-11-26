@@ -1,0 +1,73 @@
+---
+# Keep pam-auth-update profiles disabled that have no business running for
+# every session on the host.
+#
+# The case this was written for is kde-kwallet. The kwallet-pam package ships
+# its profile with "Default: yes", so pam-auth-update puts pam_kwallet5.so
+# into /etc/pam.d/common-auth and common-session - which means KDE's wallet
+# module runs for EVERY PAM session: cron, sudo, ssh, the lot. It is
+# "optional", so it breaks nothing. It just logs three lines each time,
+# including the admirably honest "not a graphical session, skipping".
+#
+# Measured on acermagic 2026-11-26: 198 lines in five quiet hours from cron
+# alone, plus a few hundred per Ansible run, because every task's sudo fires
+# it. journald writes roughly 45 KB per entry into its preallocated files, so
+# that is not free - see tasks/drkonqi_uphold.yml for the same class of bug
+# and the same arithmetic.
+#
+# Disabling it leaves pam_kwallet5 in /etc/pam.d/{kde,kde-fingerprint,
+# kde-smartcard,sddm}, which are the stacks that actually want it, so a
+# desktop user's wallet still unlocks at login.
+#
+# DISABLE, NEVER REMOVE. From /usr/sbin/pam-auth-update itself: line 168 marks
+# a disabled profile as "seen", and line 181 re-adds only profiles that are
+# "Default: yes" AND not seen. So --remove drops it from the seen list and the
+# next PAM-related package upgrade quietly re-enables it, while --disable
+# sticks. The state lives in /var/lib/pam/seen.
+#
+# A caution about that tool: pam-auth-update has NO --help. It ignores options
+# it does not recognise and proceeds with a real run - a --help probe here
+# rewrote /etc/pam.d/common-* (idempotently, as it happened). Do not point it
+# at a flag without reading the script.
+- name: "Hold PAM profiles that should not apply to every session"
+  when: "bootstrap_pam_disabled_profiles | length > 0"
+  block:
+    # Idempotent by inspection rather than by asking pam-auth-update what it
+    # thinks: the profile file names the module, and whether that module
+    # appears in a generated common-* file is the only thing that decides
+    # whether it runs. Prints a token so changed_when needs no parsing of
+    # prose, and verifies its own work rather than trusting the exit code.
+    - name: "Disable each one, if it is enabled at all"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          prof="/usr/share/pam-configs/{{ item }}"
+          [ -r "$prof" ] || { echo "not-installed"; exit 0; }
+          mod="$(grep -oE 'pam_[a-zA-Z0-9_]+\.so' "$prof" | head -1)"
+          [ -n "$mod" ] || { echo "no-module-in-profile"; exit 0; }
+          if ! grep -qs -- "$mod" /etc/pam.d/common-*; then
+            echo "already-disabled"
+            exit 0
+          fi
+          DEBIAN_FRONTEND=noninteractive pam-auth-update --disable {{ item | quote }} >/dev/null 2>&1
+          if grep -qs -- "$mod" /etc/pam.d/common-*; then
+            echo "ERROR: $mod is still in a common-* stack after disabling {{ item }}" >&2
+            exit 1
+          fi
+          echo "disabled-now"
+        executable: "/bin/bash"
+      changed_when: "'disabled-now' in (bootstrap_pam_disable.stdout | default(''))"
+      loop: "{{ bootstrap_pam_disabled_profiles }}"
+      register: "bootstrap_pam_disable"
+
+    # No reload of anything: PAM stacks are read per session, so the next
+    # login, cron job or sudo picks this up with nothing restarted.
+    - name: "Say which profiles were not installed here"
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item }} is not a pam-auth-update profile on this host, so
+          there was nothing to disable.
+      loop: "{{ bootstrap_pam_disable.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: "'not-installed' in (item.stdout | default(''))"
