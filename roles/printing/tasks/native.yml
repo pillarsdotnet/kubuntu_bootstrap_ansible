@@ -28,8 +28,25 @@
 
       ErrorPolicy retry-job
 
+      # Never time a job out. The CUPS default is 10800 seconds, after which
+      # cupsd destroys a job that has not finished - which is precisely what a
+      # job waiting on an empty paper tray looks like. Measured on homelab
+      # 2026-07-29: paper ran out overnight, the job stalled, and three hours
+      # later cupsd SIGTERMed the filter chain. The error it surfaced was
+      # "cfFilter Ghostscript: Can't feed job data into Ghostscript", three
+      # layers downstream of the real cause, followed by "Ghostscript crashed
+      # on signal 15" - signal 15 being a deliberate kill, never a crash.
+      #
+      # Printing here is unattended by nature: the printer is on a host in
+      # another room, and "nobody refilled the tray before bedtime" must cost
+      # a reprint rather than a silently discarded job.
+      MaxJobTime 0
+
       Port 631
       Listen /run/cups/cups.sock
+      {% for cups_alias in printing_cups_server_aliases %}
+      ServerAlias {{ cups_alias }}
+      {% endfor %}
 
       Browsing No
       BrowseLocalProtocols dnssd

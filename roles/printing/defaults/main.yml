@@ -1,4 +1,22 @@
 ---
+# Extra names this host's CUPS answers to, beyond the ones it accepts on its
+# own. CUPS checks the Host: header of every request and replies "400 Bad
+# Request" to a name it does not recognise. It recognises its own hostname,
+# its IP addresses, and anything ending in ".local" - and nothing else, not
+# even its own fully qualified ".lan" name.
+#
+# That matters when one host borrows another's address, which
+# roles/bootstrap/tasks/ip_alias.yml exists to do: the borrowed ADDRESS works
+# and the borrowed NAME returns 400, so a queue pointed at
+# ipp://<other-host>:631 reports "Unable to get printer status" and holds the
+# job. The address is right, the printer is healthy, and nothing in the error
+# mentions hostnames. Measured on acermagic 2026-11-25, with the printer
+# already moved and the queue on bobse16 still addressing it as "homelab".
+#
+# Set this wherever bootstrap_extra_addresses is set, to the NAMES that
+# resolve to those addresses.
+printing_cups_server_aliases: []
+
 # Hosts running saned, for the SANE net backend. Empty means "this host has no
 # networked scanner", and the net backend configuration is left alone.
 #
