@@ -389,3 +389,62 @@
               "{{ nut_beeper_after.stdout | trim }}" after being told
               "{{ nut_beeper_state }}". The command was accepted and ignored.
             success_msg: "Beeper is {{ nut_beeper_state }}"
+
+# The other half of nut_enabled. Setting it false only ever meant "do not
+# configure a UPS here", which left a host that had once had one still
+# running the whole stack: units enabled, the driver restarting on a timer,
+# and upsmon logging "Data stale" twice a minute forever. Measured on
+# acermagic 2026-11-26, where that accounted for the largest single share of
+# a 21 GB/day journal write rate while the UPS sat unplugged on purpose.
+#
+# Stopped and disabled, NOT masked. The enable path above unmasks the server
+# and the monitor only "when nut_ups_defined.rc != 0" - that is, only when
+# ups.conf had no UPS section at the START of the run. On a host that has
+# already been configured the file keeps its section, so that condition is
+# false and the unmask never runs: a mask applied here would survive the
+# re-enable and leave the daemons refusing to start.
+#
+# Nothing in /etc/nut is removed. Those are conffiles carrying the monitoring
+# password, the role rewrites them on re-enable, and deleting them would turn
+# "plug the UPS back in and flip the flag" into a credential hunt.
+- name: "Hold the UPS stack on a host that has no UPS"
+  when: "not (nut_enabled | bool)"
+  block:
+    # Read first, act second: addressing a unit that was never installed is a
+    # failure, and a host that has never had NUT is the common case for
+    # nut_enabled being false.
+    - name: "Find out whether NUT is installed here at all"
+      ansible.builtin.command:
+        argv: ["systemctl", "list-unit-files", "--no-legend", "--no-pager"]
+      changed_when: false
+      check_mode: false
+      register: "nut_installed_units"
+
+    # The driver is a TEMPLATE unit, and the instance has to be handled apart
+    # from the rest. "systemctl list-unit-files" lists the template as
+    # "nut-driver@.service" with no instance, so testing for
+    # "nut-driver@tripplite.service" never matches - and check mode caught
+    # exactly that, with the driver left enabled to come back at the next
+    # boot. So: look for the template, act on the instance.
+    - name: "Select the UPS units this host actually has"
+      ansible.builtin.set_fact:
+        nut_units_present: >-
+          {{ (['nut-monitor.service', 'nut-server.service',
+               'nut-driver-enumerator.service', 'nut.target']
+              | select('in', nut_unit_files) | list)
+             + (['nut-driver@' ~ nut_ups_name ~ '.service']
+                if 'nut-driver@.service' in nut_unit_files else []) }}
+      vars:
+        nut_unit_files: >-
+          {{ nut_installed_units.stdout
+             | regex_findall('^(\S+)', multiline=True) }}
+
+    # Monitor first, then the server, then the driver: upsmon logs a lost
+    # connection if upsd goes out from under it, which is the noise this is
+    # here to stop.
+    - name: "Stop and disable them"
+      ansible.builtin.systemd_service:
+        enabled: false
+        name: "{{ item }}"
+        state: "stopped"
+      loop: "{{ nut_units_present }}"
