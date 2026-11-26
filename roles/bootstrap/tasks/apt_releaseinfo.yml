@@ -1,0 +1,99 @@
+---
+# Clear an expected change of repository identity, for named repositories only.
+#
+# apt refuses a whole repository - refuses, not warns - when the Origin, Label,
+# Suite, Codename or Version in its Release file stops matching what was seen
+# last time:
+#
+#   E: Repository 'https://.../debian stonking InRelease' changed its 'Origin'
+#      value from 'Forgejo on homelab' to 'Forgejo on racknerd'
+#
+# That guard is worth having. It catches a mirror that has been replaced, a
+# suite quietly renamed under a stable-sounding name, and a repository that
+# was trusted for one thing now serving another. Signature checking does not
+# cover it, because a repository whose identity changed is still signed by the
+# key it was always signed by.
+#
+# IT COST THIS ESTATE A SILENT OUTAGE. Moving the forge from homelab to
+# racknerd on 2026-11-25 changed the forge's APP_NAME, which Forgejo copies
+# verbatim into the Origin and Label of its Debian registry - so every host
+# carrying forgejo.sources stopped receiving anything from that registry, with
+# no warning, and nobody noticed until 2026-11-26. group_vars now names the
+# forge for the service rather than the host, which stops it recurring for
+# that cause; this task is for the next cause, because a repository changing
+# its name is a thing that happens and the failure mode is silence.
+#
+# WHY NOT Acquire::AllowReleaseInfoChange IN apt.conf. That is the obvious fix
+# and it is a bad one: the setting is global, so pre-authorising an Origin
+# change for the forge pre-authorises one for every Ubuntu mirror as well, for
+# ever, on a host nobody is watching. There is no per-repository form of it -
+# sources.list(5) documents Allow-Insecure and Allow-Weak as per-source
+# options but nothing for release info.
+#
+# So this acknowledges only what it has been told to expect:
+#
+#   * it probes, and does nothing at all unless a repository is actually
+#     blocked, so a quiet host stays untouched;
+#   * it compares every complaining repository against
+#     bootstrap_apt_releaseinfo_allowed and FAILS if one is not on the list,
+#     which is the case the guard exists for;
+#   * it clears only --allow-releaseinfo-change-origin and -label. Suite,
+#     Codename, Version and DefaultPin keep their protection, and those are
+#     the ones that mean a repository has moved to different content rather
+#     than merely renamed itself.
+- name: "Clear an expected repository identity change"
+  when: "bootstrap_apt_releaseinfo_allowed | length > 0"
+  block:
+    # failed_when: false because a blocked repository is exactly what is being
+    # looked for. check_mode: false because this is the probe the rest of the
+    # block reads - in check mode a skipped probe would register no stderr and
+    # the block would report nothing to do, which is not the same as nothing
+    # being wrong.
+    - name: "Is any repository blocked on an identity change?"
+      ansible.builtin.command:
+        argv:
+          - "apt-get"
+          - "update"
+          - "--quiet"
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: "bootstrap_apt_probe"
+
+    - name: "Note which repositories are blocked"
+      ansible.builtin.set_fact:
+        bootstrap_apt_blocked: >-
+          {{ bootstrap_apt_probe.stderr_lines | default([])
+             | select('search', "changed its '(Origin|Label)' value")
+             | map('regex_replace', "^E: Repository '([^']+)'.*$", '\1')
+             | list | unique }}
+
+    # The point of the whole task. An identity change on a repository nobody
+    # listed is the event the guard is for, so it stops the run rather than
+    # being tidied away.
+    - name: "Refuse to clear a change for a repository that was not expected"
+      ansible.builtin.assert:
+        fail_msg: >-
+          {{ bootstrap_apt_blocked
+             | reject('search', bootstrap_apt_releaseinfo_allowed | join('|'))
+             | list | join(', ') }} changed its Origin or Label and is not in
+          bootstrap_apt_releaseinfo_allowed. This is what the check is for:
+          confirm the repository is still the one intended, then either add it
+          to that list or fix the repository. Do not clear it blindly.
+        quiet: true
+        that:
+          - >-
+            bootstrap_apt_blocked
+            | reject('search', bootstrap_apt_releaseinfo_allowed | join('|'))
+            | list | length == 0
+
+    - name: "Clear the change for the expected repositories"
+      ansible.builtin.command:
+        argv:
+          - "apt-get"
+          - "update"
+          - "--quiet"
+          - "--allow-releaseinfo-change-origin"
+          - "--allow-releaseinfo-change-label"
+      changed_when: true
+      when: "bootstrap_apt_blocked | length > 0"

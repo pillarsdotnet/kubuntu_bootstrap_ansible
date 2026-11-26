@@ -110,6 +110,10 @@
 - name: "Hold the Ubuntu telemetry collector"
   ansible.builtin.import_tasks: "ubuntu_insights.yml"
 
+- name: "Clear an expected repository identity change"
+  ansible.builtin.import_tasks: "apt_releaseinfo.yml"
+  tags: ["apt_releaseinfo"]
+
 - name: "Add any addresses this host borrows from another"
   ansible.builtin.import_tasks: "ip_alias.yml"
   tags: ["ip_alias"]

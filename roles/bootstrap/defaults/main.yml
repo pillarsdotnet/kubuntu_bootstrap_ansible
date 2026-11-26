@@ -157,3 +157,11 @@ bootstrap_rsyslog_discard_ufw: true
 # tasks/ubuntu_insights.yml - the collect and upload timers are USER units, so
 # this is a --global mask rather than anything system-scoped.
 bootstrap_ubuntu_insights_disabled: true
+
+# Repositories whose Origin or Label may change without stopping the run, as a
+# list of regular expressions matched against the repository line apt prints.
+# EMPTY ON PURPOSE: the default is to leave apt's guard alone and let a blocked
+# repository fail loudly. See tasks/apt_releaseinfo.yml for why the apt.conf
+# setting is the wrong lever - it is global, so allowing one repository to
+# rename itself would allow every Ubuntu mirror to as well.
+bootstrap_apt_releaseinfo_allowed: []
