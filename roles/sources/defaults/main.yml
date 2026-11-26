@@ -351,7 +351,7 @@ sources_repos:
     # override pointing it at homelab, because the router does not hairpin
     # its own public address.
     forgejo:
-      comment: "Bob's Forgejo registry on homelab: own packages and forks with local fixes"
+      comment: "Bob's Forgejo registry: own packages and forks with local fixes"
       server: "https://forgejo.bobbalisa.org"
       signed_by: "/api/packages/pillarsdotnet/debian/repository.key"
       suites: "{{ sources_ubuntu_release }}"

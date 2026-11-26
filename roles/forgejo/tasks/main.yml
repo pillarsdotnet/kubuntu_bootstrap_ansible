@@ -143,6 +143,40 @@
         name: "forgejo"
         state: "started"
 
+    # APP_NAME IS SET HERE TOO, not only in restore.yml, and the duplication is
+    # the point. The copy in restore.yml runs before the service first starts,
+    # which a restored instance needs; but that whole path is gated on
+    # forgejo_restore_dump, so on an ordinary converge - every run after the
+    # migration - the variable would be inert and a change to it would never
+    # reach app.ini. It is apt metadata (group_vars/all/vars.yml explains why),
+    # so it has to hold on every run, not only on the one run that happens to
+    # be a restore.
+    #
+    # Guarded on app.ini existing rather than creating it: on a first install
+    # Forgejo writes that file itself when it initialises, and dropping a
+    # partial one there ahead of it is worse than waiting for the next
+    # converge.
+    #
+    # "section" is left null deliberately - see the measurement in restore.yml.
+    # Naming DEFAULT appends a real [DEFAULT] block and leaves app.ini carrying
+    # APP_NAME twice with different values.
+    - name: "Is app.ini there to edit?"
+      ansible.builtin.stat:
+        path: "{{ forgejo_config_dir }}/app.ini"
+      register: "forgejo_appini"
+
+    - name: "Keep the instance named for the service, not the host"
+      when: "forgejo_appini.stat.exists"
+      community.general.ini_file:
+        group: "{{ forgejo_group }}"
+        mode: "u=rw,g=r,o="
+        option: "APP_NAME"
+        owner: "root"
+        path: "{{ forgejo_config_dir }}/app.ini"
+        section:
+        value: "{{ forgejo_app_name }}"
+      notify: "Restart Forgejo"
+
     # Surgical rather than templated: /etc/hosts carries the distribution's
     # own entries and possibly another role's, so this edits one line and
     # leaves the rest alone.
