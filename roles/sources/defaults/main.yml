@@ -480,31 +480,28 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26: nothing on bobse16 or
-    # acermagic, which carry no package from it at all, and TWO on racknerd -
-    # forgejo and forgejo-runner - neither of which is a packaging task.
+    # NOTHING IS STILL HERE FOR IT, as of 2026-11-26: no host in this estate
+    # carries a single package from this repository any more. It can be removed
+    # from sources_repos whenever someone wants to, and the preferences file
+    # below becomes dead weight at the same time. Both are left in place for
+    # now so that an accidental reinstall of one of these packages still loses
+    # to the estate's own build rather than quietly winning.
     #
-    # Those two are LOAD-BEARING THERE and must not simply be removed:
+    # How it ended, for anyone reading this later and wondering why there are
+    # thirteen packaging repositories in the forge:
     #
-    #   forgejo-runner  is the Actions runner, ACTIVE, and the running daemon
-    #                   is this repo's own binary: "/usr/bin/forgejo-runner
-    #                   daemon -c /var/lib/forgejo-runner/config.yml".
-    #                   Removing it stops CI until something replaces it.
-    #
-    #   forgejo         owns only a stale /usr/bin/forgejo 15.0.12. The live
-    #                   forge runs /usr/local/bin/forgejo 17.0.0, installed by
-    #                   roles/forgejo and owned by no package, with its config
-    #                   and its 11 GB of data likewise unowned. BUT the
-    #                   package's prerm runs "systemctl stop forgejo.service"
-    #                   and "systemctl disable" - against the live unit, which
-    #                   is this role's - so removing it takes the forge down
-    #                   and leaves it disabled. Recoverable in one command,
-    #                   and still an outage nobody asked for.
-    #
-    # atuin was the last package anyone had to BUILD to get off this repo, and
-    # it is built now - it syncs to api.atuin.sh and its local database has
-    # applied a migration the archive's 18.19.0 cannot resolve, so the archive
-    # was never an option there.
+    #   built here        zellij, viu, ruff, jujutsu (+ -doc), uv, yq-go,
+    #                     yt-dlp, lazyjira, rumdl, ble.sh, atuin
+    #   mirrored          headscale - upstream's own .deb is better than
+    #                     anything worth writing, so it is verified and
+    #                     republished rather than rebuilt (see deb-mirror)
+    #   taken from here   fzf, tmux, fastfetch, ripgrep and the two
+    #                     gpu-screen-recorder packages, where the archive's
+    #                     build was good enough and carrying a third-party one
+    #                     bought only a version number
+    #   not a package     forgejo and forgejo-runner on racknerd, both now
+    #                     pinned upstream binaries in /usr/local/bin installed
+    #                     by roles/forgejo
     #
     # Packages this estate has taken over are refused from here by
     # /etc/apt/preferences.d/griffo, and the estate's own registry outranks
