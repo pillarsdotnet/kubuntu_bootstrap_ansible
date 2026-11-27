@@ -480,9 +480,18 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is TWO packages: atuin and
-    # ble.sh. Everything else has either been built in this estate or taken
-    # from the archive. Gone from it: Farah's yq, built here as yq-go with
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is ONE package: atuin.
+    # Everything else has either been built in this estate or taken from the
+    # archive.
+    #
+    # atuin is a DELIBERATE HOLD rather than an outstanding task. It syncs to
+    # api.atuin.sh as a logged-in user, and the local history database has
+    # applied a migration ("history author kind") that the archive's 18.19.0
+    # binary does not contain - measured by looking for the string in both
+    # binaries. sqlx refuses to run against a database holding a migration it
+    # cannot resolve, so taking the archive's version would break atuin
+    # against its own shell history. Building it here would work and is the
+    # way to remove this repository entirely; nothing is broken meanwhile. Gone from it: Farah's yq, built here as yq-go with
     # griffo's claim on the plain name "yq" refused in sources_preferences
     # below; yt-dlp, built here from upstream's GPG-signed zipapp; and
     # lazyjira and rumdl, both built here from the binaries their upstreams
@@ -505,7 +514,6 @@ sources_repos:
     # else's newer build - so that package has to be kept current here, and it
     # is the one in this estate most worth checking often.
     #
-    #   ble.sh                archive snapshot is over a year older
     #   atuin                 HELD DELIBERATELY: it syncs to api.atuin.sh, and
     #                         the local history database has applied a migration
     #                         the archive's 18.19.0 binary does not contain, so
