@@ -480,44 +480,31 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is ONE package: atuin.
-    # Everything else has either been built in this estate or taken from the
-    # archive.
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26: nothing on bobse16 or
+    # acermagic, which carry no package from it at all, and TWO on racknerd -
+    # forgejo and forgejo-runner - neither of which is a packaging task.
     #
-    # atuin is a DELIBERATE HOLD rather than an outstanding task. It syncs to
-    # api.atuin.sh as a logged-in user, and the local history database has
-    # applied a migration ("history author kind") that the archive's 18.19.0
-    # binary does not contain - measured by looking for the string in both
-    # binaries. sqlx refuses to run against a database holding a migration it
-    # cannot resolve, so taking the archive's version would break atuin
-    # against its own shell history. Building it here would work and is the
-    # way to remove this repository entirely; nothing is broken meanwhile. Gone from it: Farah's yq, built here as yq-go with
-    # griffo's claim on the plain name "yq" refused in sources_preferences
-    # below; yt-dlp, built here from upstream's GPG-signed zipapp; and
-    # lazyjira and rumdl, both built here from the binaries their upstreams
-    # publish. Note on lazyjira, because it is the counterexample to the
-    # headscale decision: its upstream DOES publish a .deb, and that package
-    # is not worth installing - one file, no copyright file at all, and a
-    # Maintainer field holding a URL. "Upstream ships a .deb" is not on its
-    # own a reason to mirror one.
+    # Those two are LOAD-BEARING THERE and must not simply be removed:
     #
-    # The two gpu-screen-recorder packages went to the ARCHIVE rather than
-    # being built here, which was the right call for the one program in this
-    # set that is not a static binary - see the note in sources_preferences
-    # below.
+    #   forgejo-runner  is the Actions runner, ACTIVE, and the running daemon
+    #                   is this repo's own binary: "/usr/bin/forgejo-runner
+    #                   daemon -c /var/lib/forgejo-runner/config.yml".
+    #                   Removing it stops CI until something replaces it.
     #
-    # ON yt-dlp, BECAUSE THE PIN CUTS BOTH WAYS: the registry outranks this
-    # repo at 990 against 500, so the registry's yt-dlp wins even when
-    # griffo's is newer. For every other package that is the intent. For
-    # yt-dlp, where being months behind means it cannot download from the
-    # sites that changed, it removes the accidental safety net of somebody
-    # else's newer build - so that package has to be kept current here, and it
-    # is the one in this estate most worth checking often.
+    #   forgejo         owns only a stale /usr/bin/forgejo 15.0.12. The live
+    #                   forge runs /usr/local/bin/forgejo 17.0.0, installed by
+    #                   roles/forgejo and owned by no package, with its config
+    #                   and its 11 GB of data likewise unowned. BUT the
+    #                   package's prerm runs "systemctl stop forgejo.service"
+    #                   and "systemctl disable" - against the live unit, which
+    #                   is this role's - so removing it takes the forge down
+    #                   and leaves it disabled. Recoverable in one command,
+    #                   and still an outage nobody asked for.
     #
-    #   atuin                 HELD DELIBERATELY: it syncs to api.atuin.sh, and
-    #                         the local history database has applied a migration
-    #                         the archive's 18.19.0 binary does not contain, so
-    #                         downgrading breaks it against its own history
+    # atuin was the last package anyone had to BUILD to get off this repo, and
+    # it is built now - it syncs to api.atuin.sh and its local database has
+    # applied a migration the archive's 18.19.0 cannot resolve, so the archive
+    # was never an option there.
     #
     # Packages this estate has taken over are refused from here by
     # /etc/apt/preferences.d/griffo, and the estate's own registry outranks
