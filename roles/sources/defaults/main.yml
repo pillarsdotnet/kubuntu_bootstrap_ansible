@@ -282,7 +282,15 @@ sources_preferences:
     # current build.
     #
     # -1 means "never install from here" rather than "prefer the other one".
-    Package: fzf tmux fastfetch ripgrep
+    # yq IS LISTED HERE FOR A DIFFERENT REASON than the four above, which are
+    # taken from the archive. griffo publishes Mike Farah's yq under the plain
+    # name "yq", which in Debian and Ubuntu belongs to Kislyuk's Python tool -
+    # so while that package is offered, "apt install yq" on this estate
+    # silently installs a different program from the one the distribution
+    # means. This estate's own build of Farah's yq is the yq-go package, and
+    # refusing griffo's gives the name back to the archive's Python tool for
+    # anyone who ever wants it.
+    Package: fzf tmux fastfetch ripgrep yq
     Pin: origin "deb.griffo.io"
     Pin-Priority: -1
   forgejo: |
@@ -459,13 +467,12 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is nine packages, and the
-    # list only shrinks:
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is eight packages, and the
+    # list only shrinks. yq has gone from it: the estate now builds Farah's yq
+    # as yq-go, and griffo's claim on the plain name "yq" is refused in
+    # sources_preferences below.
     #
     #   lazyjira, rumdl       not in the archive at all
-    #   yq                    the archive's "yq" is kislyuk's Python jq wrapper,
-    #                         a DIFFERENT PROGRAM from mikefarah's Go one - a
-    #                         name collision, not a version gap
     #   yt-dlp                currency IS the function; extractors break as
     #                         sites change, and the archive's is months old
     #   ble.sh                archive snapshot is over a year older
@@ -1029,7 +1036,13 @@ sources_packages:
     - "whois"
     - "xmds2"
     - "xxd"
-    - "yq"
+    # yq-go, NOT yq. "yq" in this archive is Andrey Kislyuk's Python wrapper
+    # around jq, which is a different program with incompatible syntax; the one
+    # this estate uses is Mike Farah's Go implementation, now built here as
+    # yq-go (forgejo.bobbalisa.org/pillarsdotnet/yq-go-debian). It installs
+    # /usr/bin/yq, while the archive's package installs yq-python, xq-python and
+    # tomlq - so both can be present and neither has to lose its name.
+    - "yq-go"
     - "yt-dlp"
     - "zellij"
     - "zstd"
