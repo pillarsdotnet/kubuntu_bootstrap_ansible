@@ -246,6 +246,45 @@ sources_apt_conf:
     };
 # Files written to /etc/apt/preferences.d/, keyed by filename.
 sources_preferences:
+  griffo: |
+    # Managed by kubuntu_bootstrap_ansible (roles/sources).
+    #
+    # PACKAGES THIS ESTATE TAKES FROM THE UBUNTU ARCHIVE INSTEAD, refused from
+    # griffo's repo so the archive's build is the one apt installs.
+    #
+    # griffo rebuilds within hours of each upstream release, so its version is
+    # always the higher one and always wins at equal priority. That is the
+    # whole point of the repo and it is why this has to be a pin: for a package
+    # the archive covers adequately, "always newer" is not a reason to carry a
+    # third-party build of it.
+    #
+    # Each of these was checked against upstream rather than assumed:
+    #
+    #   fzf        archive 0.74.1, upstream 0.75.0 - one minor behind
+    #   tmux       archive 3.7b,   upstream 3.8    - one minor behind
+    #   fastfetch  archive 2.66.0, upstream 2.71.0 - five minor, cosmetic tool
+    #   ripgrep    archive 15.2.0, upstream 16.0.0 - one major, but ripgrep is
+    #              stable and 15.2 wants nothing
+    #
+    # FZF IS HERE FOR A SECOND AND BETTER REASON than currency: griffo's fzf
+    # emits an EMPTY "Depends:" field, which crashes apt-xapian-index's
+    # relations plugin and aborts the index rebuild for the whole system
+    # (Debian #1155492, Launchpad #2177236). Of the packages this estate still
+    # took from that repo it was the only one doing so. Moving it to the
+    # archive fixes a defect, not a version number.
+    #
+    # NOT atuin, though it looked like an obvious fifth. It syncs to
+    # api.atuin.sh as a logged-in user, and - measured, not assumed - the
+    # local history database has applied a migration ("history author kind")
+    # that the archive's 18.19.0 binary does not contain. sqlx refuses to run
+    # against a database carrying a migration it cannot resolve, so the
+    # downgrade would break atuin against its own shell history. It stays on a
+    # current build.
+    #
+    # -1 means "never install from here" rather than "prefer the other one".
+    Package: fzf tmux fastfetch ripgrep
+    Pin: origin "deb.griffo.io"
+    Pin-Priority: -1
   forgejo: |
     # Managed by kubuntu_bootstrap_ansible (roles/sources).
     #
