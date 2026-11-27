@@ -180,10 +180,32 @@ forgejo_client_max_body_size: "2048m"
 # out to be wrong.
 forgejo_runner_enabled: false
 
-# The packaged runner rather than a pinned upstream binary. Unlike the forge
-# there is no schema here and no dump to restore, so there is nothing a
-# version change can corrupt - the worst an upgrade does is restart a daemon.
-forgejo_runner_binary: "/usr/bin/forgejo-runner"
+# A PINNED UPSTREAM BINARY, as the forge itself is, and no longer the packaged
+# one. The comment here used to say the packaged runner was fine because
+# nothing a version change can corrupt - no schema, no dump - and that reasoning
+# still holds for upgrades. What it missed is where the package came from: it
+# was the only thing keeping a third-party apt repository in this estate's
+# sources, on the one host that cannot afford a careless removal, and the
+# package shipped upstream's binary UNCHANGED - sha256 6b077cca... on both,
+# checked. So the package bought nothing and cost a repository.
+#
+# Installed to /usr/local/bin rather than /usr/bin because that is where
+# unpackaged local binaries belong, and because it is where the forge binary
+# already lives - the two now work the same way.
+forgejo_runner_binary: "/usr/local/bin/forgejo-runner"
+forgejo_runner_version: "13.2.2"
+# VERIFIED, unlike the forge binary beside it, which this role still fetches
+# with no checksum at all. Upstream publishes a .sha256 and a .asc for every
+# asset; this pins the sum so that changing forgejo_runner_version is a
+# deliberate act with a new digest rather than a silent pull of whatever is at
+# the URL. Taken from
+# forgejo-runner-13.2.2-linux-amd64.sha256 on 2026-11-26.
+#
+# The .asc would be stronger still and is the obvious next step, but it needs
+# Forgejo's signing key imported and pinned, which is a larger change than
+# this one.
+forgejo_runner_sha256: >-
+  6b077ccadc22036ba049cea39b09cfbdc5e5ad6000a38f90c83a19e4fb815543
 forgejo_runner_user: "forgejo-runner"
 forgejo_runner_home: "/var/lib/forgejo-runner"
 

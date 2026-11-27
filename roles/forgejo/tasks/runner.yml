@@ -8,11 +8,59 @@
 # only if .runner is absent, and leaves it alone afterwards - re-registering
 # would appear in the forge as a second runner and orphan the first.
 
-- name: "Install the runner"
-  ansible.builtin.apt:
-    auto_install_module_deps: true
-    name: "forgejo-runner"
-    state: "present"
+# THE UPSTREAM BINARY, NOT A PACKAGE, and mirroring how the forge binary is
+# installed a few tasks up in main.yml. The packaged runner was the last thing
+# holding a third-party apt repository in this estate's sources, and it shipped
+# upstream's binary unchanged - identical sha256 - so it bought nothing.
+#
+# force: false so an existing binary at the pinned version is left alone; the
+# checksum is what makes that safe, since a truncated earlier download would
+# not match and would be replaced.
+- name: "Install the runner binary"
+  ansible.builtin.get_url:
+    checksum: "sha256:{{ forgejo_runner_sha256 }}"
+    dest: "{{ forgejo_runner_binary }}"
+    force: false
+    group: "root"
+    mode: "u=rwx,g=rx,o=rx"
+    owner: "root"
+    url: >-
+      https://code.forgejo.org/forgejo/runner/releases/download/v{{
+      forgejo_runner_version }}/forgejo-runner-{{
+      forgejo_runner_version }}-linux-amd64
+  notify: "Restart the Forgejo runner"
+
+# The proof that the thing just installed is the thing expected, rather than
+# trusting the download. A runner whose binary is wrong takes jobs and fails
+# them, which is harder to read than a failed converge.
+# Skipped in check mode rather than run with check_mode: false, because in
+# check mode the download above did not happen - so on a host that does not
+# have the binary yet this would run --version against a file that is not
+# there and report a failure that says nothing about the change. A verification
+# that depends on a change check mode skipped cannot be meaningful in check
+# mode.
+- name: "Check the runner binary reports the pinned version"
+  ansible.builtin.command:
+    argv:
+      - "{{ forgejo_runner_binary }}"
+      - "--version"
+  changed_when: false
+  register: "forgejo_runner_installed_version"
+  when: "not ansible_check_mode"
+
+- name: "Refuse a runner binary that is not the pinned version"
+  ansible.builtin.assert:
+    fail_msg: >-
+      {{ forgejo_runner_binary }} reports
+      "{{ forgejo_runner_installed_version.stdout | trim }}" but
+      forgejo_runner_version is {{ forgejo_runner_version }}. An existing
+      binary is left in place by force: false, so this usually means the
+      version was raised without removing the old one.
+    quiet: true
+    that:
+      - >-
+        forgejo_runner_version in forgejo_runner_installed_version.stdout
+  when: "not ansible_check_mode"
 
 # The docker backend is not optional given the labels this estate uses: every
 # one of them is "docker://something". A runner with no dockerd takes jobs and

@@ -27,10 +27,24 @@ dump on a 15 binary does not downgrade — it refuses, or half-applies. The role
 asserts this when `forgejo_restore_source_version` is set, and installs a
 pinned upstream binary in `/usr/local/bin` rather than using the package.
 
-The packaged install is left in place and shadowed by the unit this role
-writes. Run `apt-mark hold forgejo` on `racknerd` so an upgrade cannot move a
-binary that nothing is running. Do **not** hold `forgejo-runner`: the runner
-tasks use the packaged one, so upgrades there are wanted.
+**Neither the forge nor the runner comes from a package any more**, and the
+`apt-mark hold forgejo` this section used to prescribe is obsolete — do not
+re-apply it. Both binaries are pinned upstream downloads in `/usr/local/bin`,
+installed by this role, with the units it writes.
+
+The hold existed because the packaged forge installed a second binary at
+`/usr/bin/forgejo` that nothing ran, and an apt upgrade could move it under a
+live instance. The package is purged on `racknerd` as of 2026-11-26, so there
+is nothing left to hold; `apt-mark showhold` there is empty.
+
+The runner moved the same way and for a sharper reason: its package was the
+last thing keeping a third-party apt repository in this estate's sources, on
+the one host that cannot afford a careless removal. That package shipped
+upstream's binary **unchanged** — identical `sha256` — so it bought nothing.
+The runner binary is now verified against the `sha256` upstream publishes,
+which the packaged one never was; see `forgejo_runner_sha256` in
+`defaults/main.yml`. The forge binary beside it is still fetched with no
+checksum, which is the obvious next thing to fix here.
 
 ## Where the name records actually live
 
