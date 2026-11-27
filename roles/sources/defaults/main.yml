@@ -290,7 +290,20 @@ sources_preferences:
     # means. This estate's own build of Farah's yq is the yq-go package, and
     # refusing griffo's gives the name back to the archive's Python tool for
     # anyone who ever wants it.
-    Package: fzf tmux fastfetch ripgrep yq
+    # The two gpu-screen-recorder packages are refused here for the plainest
+    # reason on this list: the archive packages this properly - five binary
+    # packages from one source - and the only thing 6.x adds over the
+    # archive's 5.13.8 that this estate would notice is gsr-cli, a 22 KB
+    # client for controlling a running recorder over a socket. Both versions
+    # support the same control surface by SIGNAL (SIGINT, SIGUSR1, SIGUSR2,
+    # SIGRTMIN+n), documented in both man pages, so gsr-cli is a more precise
+    # way to do what signals already do rather than a capability. Against
+    # that: upstream is a cgit instance with no release artifacts and no
+    # checksums, it is GPL-3 meson-built C with about fifteen build
+    # dependencies, it is ABI-pinned to ffmpeg and so needs rebuilding at
+    # every ffmpeg transition, and upstream explicitly calls distro packages
+    # unofficial and asks for issues to be reproduced from source first.
+    Package: fzf tmux fastfetch ripgrep yq gpu-screen-recorder gpu-screen-recorder-cli
     Pin: origin "deb.griffo.io"
     Pin-Priority: -1
   forgejo: |
@@ -467,8 +480,9 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is FIVE packages, and the
-    # list only shrinks. Gone from it: Farah's yq, built here as yq-go with
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is TWO packages: atuin and
+    # ble.sh. Everything else has either been built in this estate or taken
+    # from the archive. Gone from it: Farah's yq, built here as yq-go with
     # griffo's claim on the plain name "yq" refused in sources_preferences
     # below; yt-dlp, built here from upstream's GPG-signed zipapp; and
     # lazyjira and rumdl, both built here from the binaries their upstreams
@@ -477,6 +491,11 @@ sources_repos:
     # is not worth installing - one file, no copyright file at all, and a
     # Maintainer field holding a URL. "Upstream ships a .deb" is not on its
     # own a reason to mirror one.
+    #
+    # The two gpu-screen-recorder packages went to the ARCHIVE rather than
+    # being built here, which was the right call for the one program in this
+    # set that is not a static binary - see the note in sources_preferences
+    # below.
     #
     # ON yt-dlp, BECAUSE THE PIN CUTS BOTH WAYS: the registry outranks this
     # repo at 990 against 500, so the registry's yt-dlp wins even when
@@ -491,8 +510,6 @@ sources_repos:
     #                         the local history database has applied a migration
     #                         the archive's 18.19.0 binary does not contain, so
     #                         downgrading breaks it against its own history
-    #   gpu-screen-recorder   upstream is not on GitHub, and 6.x renamed what
-    #   and -cli              the archive still ships as -cli at 5.x
     #
     # Packages this estate has taken over are refused from here by
     # /etc/apt/preferences.d/griffo, and the estate's own registry outranks
@@ -1337,7 +1354,18 @@ sources_packages:
     - "google-android-platform-tools-installer"
     - "google-chrome-canary"
     - "gpsim"
-    - "gpu-screen-recorder"
+    # gpu-screen-recorder-cli, NOT gpu-screen-recorder. The archive has no
+    # binary package by the plain name at all - its source produces -cli,
+    # -dev, -service, -mod and -scripts - and the third-party package that did
+    # use the plain name was an empty metapackage depending on its own -cli.
+    # Upstream renamed things between the archive's 5.x and that 6.x.
+    #
+    # -service carries /usr/lib/systemd/user/gpu-screen-recorder.service, which
+    # the third-party -cli used to ship in the same package. It is disabled and
+    # inactive on every host here, but it WAS available before, and removing a
+    # unit file nobody asked to remove is not this change's business.
+    - "gpu-screen-recorder-cli"
+    - "gpu-screen-recorder-service"
     - "gputils"
     - "gr-framework"
     - "graphicsmagick"
