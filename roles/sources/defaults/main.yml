@@ -467,14 +467,21 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is eight packages, and the
-    # list only shrinks. yq has gone from it: the estate now builds Farah's yq
-    # as yq-go, and griffo's claim on the plain name "yq" is refused in
-    # sources_preferences below.
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is seven packages, and the
+    # list only shrinks. yq and yt-dlp have gone from it: Farah's yq is built
+    # here as yq-go, with griffo's claim on the plain name "yq" refused in
+    # sources_preferences below, and yt-dlp is built here from upstream's
+    # GPG-signed zipapp.
+    #
+    # ON yt-dlp, BECAUSE THE PIN CUTS BOTH WAYS: the registry outranks this
+    # repo at 990 against 500, so the registry's yt-dlp wins even when
+    # griffo's is newer. For every other package that is the intent. For
+    # yt-dlp, where being months behind means it cannot download from the
+    # sites that changed, it removes the accidental safety net of somebody
+    # else's newer build - so that package has to be kept current here, and it
+    # is the one in this estate most worth checking often.
     #
     #   lazyjira, rumdl       not in the archive at all
-    #   yt-dlp                currency IS the function; extractors break as
-    #                         sites change, and the archive's is months old
     #   ble.sh                archive snapshot is over a year older
     #   atuin                 HELD DELIBERATELY: it syncs to api.atuin.sh, and
     #                         the local history database has applied a migration
