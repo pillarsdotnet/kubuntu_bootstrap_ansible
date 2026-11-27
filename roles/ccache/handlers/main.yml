@@ -1,0 +1,8 @@
+---
+- name: "Re-export the NFS shares"
+  ansible.builtin.command:
+    argv:
+      - "exportfs"
+      - "-ra"
+  changed_when: true
+  listen: "Re-export the NFS shares"

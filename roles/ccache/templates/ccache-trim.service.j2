@@ -1,0 +1,28 @@
+# Managed by Ansible (roles/ccache). Do not edit by hand.
+[Unit]
+Description=Trim the shared ccache object store
+Documentation=man:ccache(1)
+# The store is on a mounted filesystem in the general case, and trimming a
+# directory that is not there would otherwise delete nothing and report
+# success.
+ConditionPathIsDirectory={{ ccache_root }}
+
+[Service]
+Type=oneshot
+# --trim-method mtime, not the "atime" default. Clients mount noatime, so
+# atime on this host stops tracking use and trimming by it would evict the
+# entries being used most; the clients' "@update-mtime=true" puts that
+# information in mtime instead. See roles/ccache/defaults/main.yml.
+ExecStart=/usr/bin/ccache --trim-dir {{ ccache_root }} --trim-max-size {{ ccache_max_size }} --trim-method {{ ccache_trim_method }}
+Nice=10
+IOSchedulingClass=idle
+# It only ever needs to delete files under one directory.
+ProtectSystem=strict
+ReadWritePaths={{ ccache_root }}
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+NoNewPrivileges=true

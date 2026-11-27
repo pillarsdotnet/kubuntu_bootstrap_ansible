@@ -1,0 +1,62 @@
+---
+# A shared ccache object store, exported over NFS.
+#
+# This is the sibling of the sccache role and the split is not arbitrary: both
+# let one host's build warm the next, but ccache's "file" secondary storage
+# reads a DIRECTORY, so it needs a filesystem, while sccache has no
+# shared-directory backend at all and speaks WebDAV instead. Hence NFS here and
+# nginx there.
+#
+# A client points at it with CCACHE_REMOTE_STORAGE, e.g.
+#
+#   file:/mnt/ccache|@umask=000|@update-mtime=true
+#
+# Off everywhere until a host asks for it. It stores no secrets, but it is a
+# writable store whose contents become other hosts' object files, so a cache
+# poisoned on purpose is a supply-chain problem - which is why ccache_clients
+# defaults to empty and the tasks refuse to export to everybody.
+ccache_enabled: false
+
+ccache_root: "/srv/ccache"
+
+# CIDRs or hostnames allowed to mount, as NFS client specifications. Empty
+# exports nothing; the assertion in tasks/main.yml refuses a world-readable
+# export outright.
+ccache_clients: []
+
+# ALL_SQUASH IS DELIBERATE AND NOT A SECURITY GESTURE - it is what makes the
+# store work at all. The user ids do not line up across this estate:
+# pillarsdotnet is 1000:1000 on bobse16 and 1001:1004 on acermagic, so without
+# squashing, files written by one host would be owned by an unrelated
+# identity on the other and the cache would collect entries nobody can read.
+# Squashing every client to one anonymous identity makes ownership uniform, and
+# the client's "@umask=000" then keeps the modes permissive enough to share.
+#
+# It also means root on a client is not root here, which is the ordinary
+# benefit.
+ccache_anon_uid: 65534
+ccache_anon_gid: 65534
+
+# sync rather than async, on purpose. async is markedly faster and the usual
+# advice for a cache is that losing it does not matter - but a half-written
+# object surviving a crash does not read as "missing", it reads as a cache HIT
+# with truncated contents, and ccache treats remote-storage errors as
+# non-fatal, so the compiler would be handed a bad object quietly. Correctness
+# over throughput for something that feeds a build.
+ccache_export_options: "rw,sync,no_subtree_check"
+
+# Trim the store on a schedule. Unbounded growth matters here: ccache_root
+# lives on acermagic's ROOT filesystem, so a cache nobody evicts eventually
+# takes the host down rather than merely wasting space.
+ccache_trim_enabled: true
+ccache_max_size: "50G"
+ccache_trim_calendar: "daily"
+
+# mtime, NOT the "atime" that "ccache --trim-dir" defaults to, and this is the
+# one setting here that will silently ruin the cache if it is wrong. Clients
+# mount with "noatime" - deliberately, since a cache lookup should not cost a
+# write - so atime on the server stops tracking use almost entirely, and
+# trimming by it would evict the entries being used most. The client's
+# "@update-mtime=true" exists precisely so that mtime carries that information
+# instead, and this is the other half of that arrangement.
+ccache_trim_method: "mtime"

@@ -1,0 +1,130 @@
+---
+- name: "Serve a shared ccache object store over NFS"
+  when: "ccache_enabled | bool"
+  block:
+    # The same guard the sccache role has, for the same reason: this is a
+    # writable store whose contents become other hosts' object files, so an
+    # export to the world is a supply-chain hole, not merely untidy.
+    - name: "Check the store is not about to be offered to everybody"
+      ansible.builtin.assert:
+        fail_msg: >-
+          ccache_clients must name the hosts or networks allowed to mount
+          {{ ccache_root }}, and must not be a wildcard. A ccache store feeds
+          object files straight into other hosts' builds, so anyone who can
+          write to it can choose what their compiler emits.
+        quiet: true
+        that:
+          - "ccache_clients | length > 0"
+          - "'*' not in ccache_clients"
+          - "'0.0.0.0/0' not in ccache_clients"
+
+    # Loopback is appended here rather than being asked of the configuration,
+    # so that every host gets the end-to-end probe below without having to
+    # remember to allow it.
+    - name: "Add loopback for the role's own probe"
+      ansible.builtin.set_fact:
+        ccache_export_clients: "{{ ccache_clients + ['127.0.0.1'] }}"
+
+    - name: "Install the NFS server and ccache itself"
+      ansible.builtin.apt:
+        name:
+          - "nfs-kernel-server"
+          # For "ccache --trim-dir". The store is a ccache directory, so the
+          # host serving it needs the tool that prunes one even if nothing is
+          # compiled here.
+          - "ccache"
+        state: "present"
+        update_cache: true
+
+    # nobody rather than root: every client is squashed to the anonymous
+    # identity, so that is who has to be able to create entries.
+    - name: "Create the store"
+      ansible.builtin.file:
+        group: "{{ ccache_anon_gid }}"
+        mode: "u=rwx,g=rwx,o=rx"
+        owner: "{{ ccache_anon_uid }}"
+        path: "{{ ccache_root }}"
+        state: "directory"
+
+    # nfs-kernel-server does not ship this directory on Ubuntu, though
+    # exports(5) documents it and exportfs reads it.
+    - name: "Make sure the exports.d directory exists"
+      ansible.builtin.file:
+        group: "root"
+        mode: "u=rwx,g=rx,o=rx"
+        owner: "root"
+        path: "/etc/exports.d"
+        state: "directory"
+
+    - name: "Export the store"
+      ansible.builtin.template:
+        dest: "/etc/exports.d/ccache.exports"
+        group: "root"
+        mode: "u=rw,g=r,o=r"
+        owner: "root"
+        src: "ccache.exports.j2"
+      notify: "Re-export the NFS shares"
+
+    - name: "Enable the NFS server"
+      ansible.builtin.systemd_service:
+        enabled: true
+        name: "nfs-server"
+        state: "started"
+
+    - name: "Flush the re-export before testing it"
+      ansible.builtin.meta: "flush_handlers"
+
+    # The point of the probe: "exportfs" listing a path proves only that the
+    # file was parsed. This mounts it and writes through it, which is what a
+    # client will do.
+    - name: "Prove the export mounts, writes and reads back"
+      ansible.builtin.shell:
+        cmd: |
+          set -eu
+          mnt=$(mktemp -d)
+          trap 'umount "$mnt" 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true' EXIT
+          mount -t nfs -o soft,timeo=50,retrans=2 127.0.0.1:{{ ccache_root }} "$mnt"
+          echo probe > "$mnt/.ansible-probe"
+          read_back=$(cat "$mnt/.ansible-probe")
+          owner=$(stat -c %u "$mnt/.ansible-probe")
+          rm -f "$mnt/.ansible-probe"
+          echo "read=$read_back squashed_to=$owner"
+        executable: "/bin/bash"
+      changed_when: false
+      check_mode: false
+      register: "ccache_probe"
+
+    - name: "Confirm the probe wrote, read back, and was squashed"
+      ansible.builtin.assert:
+        fail_msg: >-
+          The export did not behave as a client will need it to
+          ({{ ccache_probe.stdout | default('no output') }}). A write failure
+          usually means {{ ccache_root }} is not writable by
+          {{ ccache_anon_uid }}; the wrong owner means all_squash is not in
+          effect, which would leave entries this estate's mismatched user ids
+          cannot share.
+        quiet: true
+        that:
+          - "'read=probe' in ccache_probe.stdout"
+          - "'squashed_to=' ~ ccache_anon_uid in ccache_probe.stdout"
+
+    - name: "Keep the store from filling the root filesystem"
+      when: "ccache_trim_enabled | bool"
+      block:
+        - name: "Install the trim units"
+          ansible.builtin.template:
+            dest: "/etc/systemd/system/{{ item }}"
+            group: "root"
+            mode: "u=rw,g=r,o=r"
+            owner: "root"
+            src: "{{ item }}.j2"
+          loop:
+            - "ccache-trim.service"
+            - "ccache-trim.timer"
+
+        - name: "Enable the trim timer"
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+            enabled: true
+            name: "ccache-trim.timer"
+            state: "started"

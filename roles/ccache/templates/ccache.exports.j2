@@ -1,0 +1,11 @@
+# Managed by Ansible (roles/ccache). Do not edit by hand.
+# See roles/ccache/defaults/main.yml for what each option is for.
+#
+# A FILE IN exports.d RATHER THAN AN EDIT TO /etc/exports, so that the
+# packaged conffile stays untouched and dpkg has nothing to prompt about when
+# nfs-kernel-server is upgraded.
+#
+# 127.0.0.1 is included by the role, not by configuration: it is what the
+# role's own probe mounts to prove the export actually serves reads and
+# writes, rather than merely appearing in "exportfs".
+{{ ccache_root }}{% for client in ccache_export_clients %} {{ client }}({{ ccache_export_options }},all_squash,anonuid={{ ccache_anon_uid }},anongid={{ ccache_anon_gid }}){% endfor %}

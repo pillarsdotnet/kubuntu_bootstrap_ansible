@@ -67,6 +67,13 @@
     # host running the runners; see roles/sccache/defaults/main.yml.
     - role: "sccache"
       tags: ["sccache"]
+
+    # The ccache sibling of the role above. Separate because the two caches
+    # cannot share a transport: ccache's secondary storage reads a directory,
+    # so it needs NFS, while sccache has no shared-directory backend and
+    # speaks WebDAV. See roles/ccache/defaults/main.yml.
+    - role: "ccache"
+      tags: ["ccache"]
     # Receives the Home Library hourly disaster copy. Installs no library and
     # serves nothing; see roles/library_peer/defaults/main.yml.
     - role: "library_peer"

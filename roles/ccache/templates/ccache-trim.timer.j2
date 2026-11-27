@@ -1,0 +1,12 @@
+# Managed by Ansible (roles/ccache). Do not edit by hand.
+[Unit]
+Description=Trim the shared ccache object store on a schedule
+
+[Timer]
+OnCalendar={{ ccache_trim_calendar }}
+# Spread it off the minute everything else in this estate fires on.
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
