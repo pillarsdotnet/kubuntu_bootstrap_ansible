@@ -449,14 +449,37 @@ sources_repos:
       server: "https://cli.github.com/packages"
       signed_by: "/githubcli-archive-keyring.gpg"
       uris: ""
-    # Dario Griffo's unofficial repo of current dev-tool builds (uv, lazygit,
-    # eza, ...), rebuilt within hours of each upstream release. Here for uv,
-    # where the archive's story varies by release: resolute has no uv at all,
-    # and stonking's "uv" (source: uv-full) does ship the full uv/uvx CLI but
-    # lags upstream (0.11 vs 0.13 at the time of writing) - not to be confused
-    # with python3-uv-build, which is only the PEP 517 build backend. This
-    # repo's higher version outranks the archive's at equal priority, no pin
-    # needed.
+    # Dario Griffo's unofficial repo of current dev-tool builds, rebuilt within
+    # hours of each upstream release.
+    #
+    # NO LONGER HERE FOR uv, which was the original and stated reason. uv is now
+    # built in this estate - forgejo.bobbalisa.org/pillarsdotnet/uv-debian - and
+    # served from the estate's own registry, so the archive's lag, which is real
+    # (stonking ships 0.11 against upstream's 0.13, and its "uv" is not to be
+    # confused with python3-uv-build, which is only the PEP 517 backend), is no
+    # longer a reason to carry a third-party repository.
+    #
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is nine packages, and the
+    # list only shrinks:
+    #
+    #   lazyjira, rumdl       not in the archive at all
+    #   yq                    the archive's "yq" is kislyuk's Python jq wrapper,
+    #                         a DIFFERENT PROGRAM from mikefarah's Go one - a
+    #                         name collision, not a version gap
+    #   yt-dlp                currency IS the function; extractors break as
+    #                         sites change, and the archive's is months old
+    #   ble.sh                archive snapshot is over a year older
+    #   atuin                 HELD DELIBERATELY: it syncs to api.atuin.sh, and
+    #                         the local history database has applied a migration
+    #                         the archive's 18.19.0 binary does not contain, so
+    #                         downgrading breaks it against its own history
+    #   gpu-screen-recorder   upstream is not on GitHub, and 6.x renamed what
+    #   and -cli              the archive still ships as -cli at 5.x
+    #
+    # Packages this estate has taken over are refused from here by
+    # /etc/apt/preferences.d/griffo, and the estate's own registry outranks
+    # everything via ...d/forgejo - both in sources_preferences below. Remove
+    # this repository once the nine above are dealt with.
     # No "stonking" (26.10) suite here yet; stay on resolute until there is.
     griffo:
       comment: "Unofficial builds of modern dev tools; here for astral's uv"
