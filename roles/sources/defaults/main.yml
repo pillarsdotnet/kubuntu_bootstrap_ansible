@@ -467,11 +467,16 @@ sources_repos:
     # confused with python3-uv-build, which is only the PEP 517 backend), is no
     # longer a reason to carry a third-party repository.
     #
-    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is seven packages, and the
-    # list only shrinks. yq and yt-dlp have gone from it: Farah's yq is built
-    # here as yq-go, with griffo's claim on the plain name "yq" refused in
-    # sources_preferences below, and yt-dlp is built here from upstream's
-    # GPG-signed zipapp.
+    # WHAT IT IS STILL HERE FOR, as of 2026-11-26, is FIVE packages, and the
+    # list only shrinks. Gone from it: Farah's yq, built here as yq-go with
+    # griffo's claim on the plain name "yq" refused in sources_preferences
+    # below; yt-dlp, built here from upstream's GPG-signed zipapp; and
+    # lazyjira and rumdl, both built here from the binaries their upstreams
+    # publish. Note on lazyjira, because it is the counterexample to the
+    # headscale decision: its upstream DOES publish a .deb, and that package
+    # is not worth installing - one file, no copyright file at all, and a
+    # Maintainer field holding a URL. "Upstream ships a .deb" is not on its
+    # own a reason to mirror one.
     #
     # ON yt-dlp, BECAUSE THE PIN CUTS BOTH WAYS: the registry outranks this
     # repo at 990 against 500, so the registry's yt-dlp wins even when
@@ -481,7 +486,6 @@ sources_repos:
     # else's newer build - so that package has to be kept current here, and it
     # is the one in this estate most worth checking often.
     #
-    #   lazyjira, rumdl       not in the archive at all
     #   ble.sh                archive snapshot is over a year older
     #   atuin                 HELD DELIBERATELY: it syncs to api.atuin.sh, and
     #                         the local history database has applied a migration
